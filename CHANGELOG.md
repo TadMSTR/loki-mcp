@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.1.1] — 2026-05-26
+
+### Security
+
+- **`get_label_values`: label name validated before URL path interpolation** — `label`
+  is now validated against `^[a-zA-Z_][a-zA-Z0-9_]*$` before being inserted into the
+  Loki API path. Raises `ValueError` on invalid input. Prevents path traversal via
+  `../` sequences resolved by httpx's RFC 3986 normalization.
+
 ## [0.1.0] — 2026-05-26
 
 Initial release.
