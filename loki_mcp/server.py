@@ -30,6 +30,8 @@ _log = structlog.get_logger("loki-mcp")
 
 LOKI_URL = os.environ.get("LOKI_URL", "http://localhost:3100").rstrip("/")
 
+_LABEL_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
 # Maximum lines returned per query — prevents oversized responses.
 _MAX_LIMIT = 1000
 
@@ -252,6 +254,8 @@ async def get_label_values(
     Returns:
         Sorted list of value strings for the given label.
     """
+    if not _LABEL_RE.match(label):
+        raise ValueError(f"Invalid label name: {label!r}")
     params = {
         "start": str(_parse_time(start)),
         "end": str(_parse_time(end)),
