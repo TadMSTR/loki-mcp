@@ -2,7 +2,18 @@
 
 ## [Unreleased]
 
-## [0.1.1] — 2026-05-26
+## [0.1.1] — 2026-05-27
+
+### Added
+
+- `observability.py` — structured logging always on (stderr, JSON, structlog);
+  default log path `/opt/appdata/loki-mcp/logs/loki-mcp.log`; log directory
+  created at startup; OTEL tracing opt-in via `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- `configure_logging()` wired into `main()` before `mcp.run()`.
+- `[otel]` optional dep group: `opentelemetry-sdk>=1.20`,
+  `opentelemetry-exporter-otlp-proto-grpc>=1.20`.
+- Bare `LOG_FILE` guard: `if log_dir:` check before `os.makedirs` prevents
+  `FileNotFoundError` when `LOG_FILE` is set to a bare filename.
 
 ### Security
 
