@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loki-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "FastMCP server for Loki LogQL queries — read-only access to log streams"
 readme = "README.md"
 license = "MIT"
@@ -17,6 +17,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+otel = [
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.20",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",

@@ -322,6 +322,8 @@ async def tail_recent(
 
 
 def main() -> None:
+    from .observability import configure_logging
+    configure_logging()
     mcp.run()
 
 
