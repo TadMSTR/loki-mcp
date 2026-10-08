@@ -4,39 +4,77 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loki-mcp"
-version = "0.1.1"
-description = "FastMCP server for Loki LogQL queries — read-only access to log streams"
+version = "0.2.0"
+description = "FastMCP server for Loki LogQL queries — read-only access to log streams, with multi-tenant support"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 keywords = ["mcp", "loki", "logql", "observability", "fastmcp"]
-dependencies = [
-    "fastmcp>=3.2.0,<4.0.0",
-    "httpx>=0.27",
-    "structlog>=24.0",
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Logging",
 ]
+# BOUNDED RANGES, NOT BARE FLOORS. This repo carries `ships` (deployed: true), so
+# repo-standards' Dependencies block applies (vikunja#627: a bare `fastmcp>=2.0` resolved
+# two majors past anything tested and nobody noticed for ten days).
+#
+# Measured against PyPI on 2026-10-08:
+#   fastmcp   latest 4.1.0 == tested. Floor and ceiling on the same major, as in
+#             dockhand-mcp 0.7.0: a floor left on 3.x would let CI and a fresh resolve
+#             land on different majors (vikunja#611).
+#   httpx     latest 0.28.1 == tested. 0.x, so the MINOR is the breaking boundary.
+#   structlog latest 26.1.0 == tested.
+#   pydantic  imported directly (Field constraints on tool arguments); arrives via
+#             fastmcp, declared because this package imports it.
+dependencies = [
+    "fastmcp>=4.0.11,<5",
+    "httpx>=0.27,<0.29",
+    "structlog>=24.0,<27.0",
+    "pydantic>=2.0,<3",
+]
+
+[project.urls]
+Homepage = "https://github.com/TadMSTR/loki-mcp"
+Repository = "https://github.com/TadMSTR/loki-mcp"
+Issues = "https://github.com/TadMSTR/loki-mcp/issues"
+Changelog = "https://github.com/TadMSTR/loki-mcp/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 otel = [
-    "opentelemetry-sdk>=1.20",
-    "opentelemetry-exporter-otlp-proto-grpc>=1.20",
+    "opentelemetry-sdk>=1.20,<2",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.20,<2",
 ]
 dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.23",
-    "respx>=0.21",
-    "pytest-cov>=4.0",
-    "ruff",
+    "pytest>=8.0,<10",
+    "pytest-asyncio>=0.23,<2",
+    "respx>=0.21,<0.24",
+    "pytest-cov>=4.0,<8",
+    # Pinned exactly: an unpinned formatter is a gate whose result depends on when it ran
+    # (signoz-mcp measured local 0.15.22 vs CI 0.16.8 and a red `ruff format --check` on
+    # code that had just been formatted). Bumps arrive through Dependabot's dev-tools PR.
+    "ruff==0.16.10",
 ]
 
 [project.scripts]
 loki-mcp = "loki_mcp.server:main"
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["loki_mcp*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    # tests/test_live_loki.py: a real multi-tenant Loki. Skipped unless LOKI_LIVE_URL is
+    # set; CI's live-loki job starts grafana/loki:3.7.6 and sets it. A SKIP is not a PASS.
+    "live: requires a reachable multi-tenant Loki; opt in with LOKI_LIVE_URL",
+]
 
 [tool.ruff]
 line-length = 100
@@ -48,6 +86,19 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["B", "SIM"]
 
+[tool.coverage.run]
+omit = ["src/loki_mcp/__main__.py"]
+
 [tool.coverage.report]
-fail_under = 80
+# COVERAGE FLOOR — F8, ratcheted to the measurement.
+#
+# Measured 2026-10-08 for v0.2.0: 99.76%
+# (409 statements, 1 missed: the `if __name__ == "__main__"` guard). Raised 80 -> 99.
+# The 80 it replaces sat twenty points below reality, so it would have let a twenty-point
+# regression through green (vikunja#680: searxng-mcp's floor sat twelve points under for
+# ten releases). Live tests (-m live) are not in this number; they skip without Loki.
+#
+# Do not lower it to make a red build green. If coverage falls, test the new code, or
+# explain the drop in CHANGELOG.md.
+fail_under = 99
 show_missing = true

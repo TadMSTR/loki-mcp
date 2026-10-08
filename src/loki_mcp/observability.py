@@ -2,13 +2,31 @@
 Observability setup for loki-mcp.
 
 Structured logging is always on. OTEL is opt-in via env var.
+
+  LOG_LEVEL                     default INFO
+  LOG_FILE                      default /opt/appdata/loki-mcp/logs/loki-mcp.log; empty
+                                disables the file and logs to stderr only
+  OTEL_EXPORTER_OTLP_ENDPOINT   enables a span per Loki request (needs the [otel] extra)
 """
 
 import logging
+import logging.handlers
 import os
 import sys
 
 import structlog
+
+# The file rotates. Before 0.2.0 it was a plain FileHandler with nothing to bound it.
+_LOG_MAX_BYTES = 5 * 1024 * 1024
+_LOG_BACKUPS = 3
+
+# Third-party loggers held at WARNING. Measured in a 0.1.x log:
+#   httpx                       "HTTP Request: GET <full URL>" at INFO, i.e. every LogQL
+#                               query in clear, in a world-readable file
+#   mcp.server.lowlevel.server  "Processing request of type ListToolsRequest", 96% of
+#                               the lines
+# loki-mcp logs its own one line per Loki request (see _client.loki_get).
+_QUIET_LOGGERS = ("httpx", "httpcore", "mcp.server.lowlevel.server")
 
 
 def configure_logging() -> None:
@@ -28,13 +46,21 @@ def configure_logging() -> None:
         log_dir = os.path.dirname(log_file)
         if log_dir:
             os.makedirs(log_dir, exist_ok=True)
-        handlers.append(logging.FileHandler(log_file))
+        handlers.append(
+            logging.handlers.RotatingFileHandler(
+                log_file, maxBytes=_LOG_MAX_BYTES, backupCount=_LOG_BACKUPS
+            )
+        )
+        # Owner-only. The 0.1.x file was 644.
+        os.chmod(log_file, 0o600)
 
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     for h in handlers:
         root_logger.addHandler(h)
     root_logger.setLevel(getattr(logging, log_level, logging.INFO))
+    for name in _QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
     formatter = structlog.stdlib.ProcessorFormatter(
         processors=[
@@ -60,24 +86,28 @@ def configure_logging() -> None:
 
 # ---------------------------------------------------------------------------
 # OTEL tracing (opt-in)
+#
+# Called by _client.loki_get for every Loki request. In 0.1.1 this function existed
+# but nothing called it, so the "OTEL tracing opt-in" that release announced never ran.
 # ---------------------------------------------------------------------------
 
 _tracer = None
+_tracer_failed = False
 
 
 def get_tracer():
-    global _tracer
-    if _tracer is not None:
+    global _tracer, _tracer_failed
+    if _tracer is not None or _tracer_failed:
         return _tracer
     endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     if not endpoint:
         return None
     try:
-        from opentelemetry import trace  # type: ignore
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter  # type: ignore
-        from opentelemetry.sdk.resources import Resource  # type: ignore
-        from opentelemetry.sdk.trace import TracerProvider  # type: ignore
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor  # type: ignore
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
         resource = Resource.create({"service.name": "loki-mcp"})
         provider = TracerProvider(resource=resource)
@@ -85,5 +115,8 @@ def get_tracer():
         trace.set_tracer_provider(provider)
         _tracer = trace.get_tracer("loki-mcp")
     except Exception:
+        # Once. Without the flag a missing [otel] extra retried the import, and logged,
+        # on every request.
+        _tracer_failed = True
         structlog.get_logger().warning("otel_init_failed", exc_info=True)
     return _tracer

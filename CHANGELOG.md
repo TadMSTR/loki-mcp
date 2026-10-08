@@ -2,6 +2,122 @@
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-10-08
+
+Multi-tenant Loki support, four new tools, FastMCP 4, the fleet repo standard, and a
+defect review. **Every tool's output shape changed** (see Changed). Deploying it needs a
+reinstall, not a restart: the package moved to `src/` and the dependency set changed.
+
+### Added
+- **Tenant support.** `LOKI_ORG_ID` is sent as `X-Scope-OrgID` on every request and may
+  name several tenants (`main|fake`); results that span tenants keep Loki's
+  `__tenant_id__` label. Every tool takes an optional `tenant`, which must be an exact
+  entry of the `LOKI_TENANTS` allowlist; a value not on it is an error, never a
+  pass-through. Tenant IDs are checked against Loki's rules, and **`:` is rejected**:
+  measured on Loki 3.7.6, `X-Scope-OrgID: main:x` returns tenant `main`'s data, because
+  Loki stops reading at the colon. A 401 `no org id` from Loki names `LOKI_ORG_ID`.
+- **Which endpoints accept a multi-tenant header**, measured against `grafana/loki:3.7.6`
+  with `auth_enabled` and `multi_tenant_queries_enabled`: `labels`, `label/<n>/values`,
+  `series`, `query_range` (logs and metrics), `query`, `index/volume`,
+  `index/volume_range`, `index/stats` (counts summed) and `detected_fields` all do.
+  `tail` returns 400 `multiple org IDs present`, and push returns 400; this server calls
+  neither. The `live-loki` CI job re-checks it on every change.
+- `query_instant` (`/query`), `get_volume` (`/index/volume`, `/index/volume_range` with
+  `step`), `get_stats` (`/index/stats`) and `get_detected_fields` (`/detected_fields`).
+- `LOKI_TIMEOUT`, `LOKI_MAX_LINE_CHARS`, `LOKI_MAX_RESPONSE_CHARS`. Invalid configuration
+  stops the server at startup with exit 2 and the variable named.
+- MCP `readOnlyHint` / `idempotentHint` annotations on every tool.
+- Live tests against a real multi-tenant Loki (`-m live`, CI job `live-loki`).
+- Repo standard: `src/` layout, LICENSE, committed `uv.lock` (CI installs from it),
+  CI (ruff, format, pytest with coverage floor on 3.11–3.14, lock-based pip-audit split
+  runtime/dev, wheel check, action-pin check), CodeQL, OSSF Scorecard, gitleaks secret
+  scan with a planted-secret self-test, release workflow that checks the tag against the
+  package version, Dependabot (`uv` + `github-actions`, grouped, majors ignored),
+  CODEOWNERS, README badge row, `.gitignore` secrets patterns.
+
+### Changed
+- **BREAKING: output shapes.** Every tool returns an object, not a bare list: the result
+  under a named key (`lines`, `series`, `samples`, `labels`, `values`, `streams`,
+  `volumes`, `fields`) with `count`, `tenant` and `truncated`. Log rows are
+  `{ts, line, labels}` with labels **nested** (was spread into the row). Metric results
+  are grouped per series, `{labels, values: [{ts, value}]}` (was one flat row per
+  point).
+- **BREAKING: argument validation.** `limit` and `n` must be 1–1000 (was: anything, with
+  >1000 clamped), `direction` must be `backward` or `forward`, `step` must be a
+  duration or seconds, selectors must start with `{`, and `start` must be before `end`.
+  Errors are returned to the agent rather than sent to Loki.
+- `query_logs` / `tail_recent` merge lines across streams in time order.
+- A sample value of NaN / ±Inf is returned as Loki's string (`"NaN"`, `"+Inf"`).
+- **FastMCP 3 → 4** (`fastmcp>=4.0.11,<5`; locked 4.1.0, MCP SDK 2.3.0). No blocker: the
+  six existing tools registered with identical arguments, and the 0.1.1 suite passed
+  unchanged on 4.1.0 before any other change. Bounded ranges on every dependency.
+- The log file rotates (5 MB × 3) and is mode 600. `httpx`, `httpcore` and the MCP
+  SDK's request logger are held at WARNING. loki-mcp logs one line per Loki request
+  (path, tenant, status, duration) and the LogQL text only at DEBUG.
+- Coverage floor 80 → 99 (measured 99.76%).
+
+### Fixed — defect review
+Research's nine hypotheses, each proved or refuted before fixing, plus what the review
+found beyond them. "Test" names the regression test.
+
+1. **Confirmed.** Labels spread after `ts`/`line`/`value` overwrote them. Measured on
+   0.1.1: a stream label `line="FORGED"` replaced the log line, and a metric label
+   `value` replaced the sample. Loki returns structured metadata merged into stream
+   labels (measured), so anyone who can push chooses these names. Test:
+   `test_label_named_line_or_ts_cannot_replace_the_log_line`, and the live
+   `test_structured_metadata_named_line_cannot_replace_the_line`.
+2. **Confirmed.** OTEL was dead code: nothing called `get_tracer()`, so the 0.1.1 entry
+   below ("OTEL tracing opt-in") described a feature that never ran. Now one span per
+   Loki request. Test: `test_a_span_is_opened_per_request_when_tracing_is_on`.
+3. **Confirmed.** Loki's error body was lost: a LogQL syntax error is a 400 with
+   `parse error at line 1, col 21: ...` (measured), and the agent got only the status.
+   Test: `test_loki_error_body_reaches_the_agent`.
+4. **Confirmed.** `query_logs` with a metric expression returned `[]` (Loki answers with
+   a matrix, measured). Now an error naming `query_aggregate` / `query_instant`. Test:
+   `test_query_logs_metric_expression_names_the_right_tool`.
+5. **Confirmed.** `limit=-5`, `direction="sideways"` and `step="banana"` were all sent to
+   Loki (measured on 0.1.1). Tests: `test_query_logs_bad_arguments_rejected_by_schema`,
+   `test_step_rejected`.
+6. **Confirmed.** No bound on response size. Now a per-line cut and a total budget, with
+   `truncated` and a `note` saying what was left out. Test:
+   `test_response_budget_cuts_lines_and_says_so`.
+7. **Confirmed.** An ISO timestamp without an offset was local time: under
+   `TZ=America/New_York`, `2026-01-01T00:00:00` was 5 h off the `Z` form (measured). Now
+   UTC. Test:
+   `test_parse_time_naive_iso_is_utc_not_local`.
+8. **Confirmed, and wider than stated.** A 0.1.x log file (mode 644, no rotation) held
+   every LogQL query in clear via httpx's INFO `HTTP Request: GET <url>` line, and 96% of
+   its lines were MCP `ListToolsRequest` noise. Tests: `test_log_file_rotates_and_is_owner_only`,
+   `test_noisy_third_party_loggers_held_at_warning`,
+   `test_query_text_not_logged_at_info`.
+9. **Partly confirmed.** `query_logs` used `build_request`/`send` while the others used
+   `.get`, and timeouts were fixed at 15/30 s. Both fixed (one path, `LOKI_TIMEOUT`).
+   A client per call is **kept on purpose**: stdio server, loopback Loki over plain HTTP,
+   a handful of calls per session, and a module-level client binds to the first event
+   loop. Test: `test_timeout_setting_reaches_httpx`.
+
+Found beyond the list:
+- `query_logs` / `tail_recent` concatenated Loki's per-stream groups, so "newest first"
+  held only within a stream. Test: `test_parse_streams_merges_streams_newest_first`.
+- FastMCP's startup banner ran an update check, a GET to `pypi.org` from inside the
+  stdio server on every launch. Now `show_banner=False`. Test:
+  `test_main_runs_without_banner`.
+- FastMCP 4 serialises a non-finite float as `null` (measured), which reads as "no
+  data". Test: `test_nan_survives_serialisation_as_a_string`.
+- `ecosystem.config.js` described a PM2 daemon; loki-mcp is a stdio subprocess of its
+  MCP client and never ran that way. Removed.
+- `pydantic` is now imported directly (tool-argument constraints), so it is declared rather than relied on through fastmcp.
+
+### Upgrading
+- Reinstall, don't just restart: the package moved to `src/` and the dependencies
+  changed.
+- With multi-tenant Loki, set `LOKI_ORG_ID` (and `LOKI_TENANTS` if agents may pick a
+  tenant). Loki with `auth_enabled: false` ignores the header (measured on 3.7.6), so
+  both can be set before switching Loki to multi-tenant; until then every `tenant` value
+  reads the one tenant there is.
+- MCP clients that cache the tool list see the four new tools only after reconnecting.
+- On first start an existing log file is changed to mode 600.
+
 ## [0.1.1] — 2026-05-27
 
 ### Added
