@@ -1,0 +1,14 @@
+# CODEOWNERS — F2. Single maintainer, so one owner. Required under `visibility: public`:
+# OSSF Scorecard reads it, and it answers "who is accountable for a change here".
+#
+# GitHub applies the LAST matching pattern, so the lines below override the catch-all
+# and stay owned even if the catch-all is ever narrowed.
+
+*                           @TadMSTR
+
+# Tenant selection and the allowlist live here: the only thing between an agent and
+# every tenant in Loki.
+/src/loki_mcp/_client.py    @TadMSTR
+
+# Workflows hold the credentials.
+/.github/                   @TadMSTR

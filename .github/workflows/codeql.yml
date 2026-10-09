@@ -1,0 +1,56 @@
+# CodeQL static analysis — F3. Free because the repository is public.
+#
+# Two languages: python for the code, and actions for the workflows themselves.
+# release.yml holds `contents: write` and scorecard.yml `id-token: write`; an injection
+# into a `run:` block would run with those.
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly: CodeQL ships new queries, so unchanged code can become a finding.
+    # Sunday 03:37 UTC, off the hour and clear of scorecard.yml and secret-scan.yml.
+    - cron: "37 3 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      # Upload SARIF results to the Security tab.
+      security-events: write
+      contents: read
+      actions: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, actions]
+
+    steps:
+      # SHA-pinned with a trailing version comment (B12, F7). Pins resolved from the
+      # GitHub API on 2026-10-08, annotated tags dereferenced to their commit.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+
+      # No build step: CodeQL reads Python from source, and ci.yml already gates the build.
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          category: /language:${{ matrix.language }}

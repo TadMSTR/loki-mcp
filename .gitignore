@@ -1,10 +1,33 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+.venv/
 dist/
 build/
-.venv/
-.pytest_cache/
 .coverage
 htmlcov/
+.pytest_cache/
+.ruff_cache/
 *.log
+
+# Core dumps can hold process memory, credentials included.
+core
+core.*
+*.core
+
+# Credentials written as environment files (B6).
+.env
+*.env
+
+# Private key material (B6). This repo is public on GitHub; history is permanent.
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Audit scratch directories: ci.yml copies each pylock export into its own directory so
+# pip-audit --locked cannot merge the two.
+.audit-runtime/
+.audit-dev/
+pylock.runtime.toml
+pylock.dev.toml

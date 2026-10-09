@@ -16,7 +16,11 @@ Include as much detail as possible: the affected component, steps to reproduce, 
 **In scope:**
 
 - LogQL injection or query manipulation that allows access to log streams beyond the agent's intended scope
-- SSRF via the `LOKI_URL` configuration (if an attacker can control `LOKI_URL`)
+- Reading a tenant that is neither in `LOKI_ORG_ID` nor on the `LOKI_TENANTS` allowlist,
+  by any tool argument (the `tenant` argument, a selector, or a value Loki parses
+  differently from loki-mcp, as it does with `:`)
+- Log content or label names that change what a tool reports (for example, a label that
+  overwrites a log line or timestamp)
 - Information disclosure through error messages or tool responses that expose internal infrastructure details
 - Dependency vulnerabilities with a plausible exploitation path in loki-mcp's usage
 

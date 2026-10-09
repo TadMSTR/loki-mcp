@@ -1,0 +1,73 @@
+# Dependabot configuration. Arrives in the same commit as uv.lock: a lock with nothing
+# maintaining it is a freeze, not a pin (vikunja#670).
+#
+# The ecosystem is `uv`, not `pip`: `pip` would update pyproject.toml and leave uv.lock
+# frozen. No `docker` ecosystem; this repo has no Dockerfile.
+#
+# Majors are ignored. A semver-major bump is a reading task, and the bounded ranges in
+# pyproject.toml already stop one arriving silently. For a 0.x package (httpx) the minor
+# is the breaking boundary; Dependabot calls that semver-minor, so the pyproject ceiling
+# (<0.29) is the control there, not this file.
+version: 2
+
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    # A dependency joins the FIRST group it matches. `dev-tools` names the `dev` extra's
+    # members because Dependabot's "development" type is uv's [dependency-groups], not a
+    # [project.optional-dependencies] extra (vikunja#964). Add a tool here when you add it
+    # to the extra. `opentelemetry` moves as one family (vikunja#1031).
+    #
+    # At the open-PR limit a further update is not raised rather than queued, so a quiet
+    # Dependabot is not by itself evidence of being up to date.
+    groups:
+      opentelemetry:
+        patterns: ["opentelemetry-*"]
+      dev-tools:
+        patterns: ["ruff", "pytest", "pytest-*", "respx"]
+      dev-dependencies:
+        dependency-type: "development"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # The release build tools (.github/build-requirements.txt, hash-locked, compiled from
+  # build-requirements.in). Without this entry the hashes would only ever be bumped by
+  # hand (audit R2-03). Grouped so build/setuptools/wheel move in one PR.
+  - package-ecosystem: "pip"
+    directory: "/.github"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      build-tools:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Explicit: eight distinct actions are pinned (codeql-action's three subpaths count as
+    # one once grouped). At the default of 5 the sixth update is silently not raised
+    # (measured on signoz-mcp, 2026-09-20).
+    open-pull-requests-limit: 10
+    # codeql-action's init / analyze / upload-sarif must move together; ungrouped,
+    # Dependabot bumps one and CodeQL fails with a version mismatch. Repeated for the
+    # security channel, which a group without `applies-to` does not cover (vikunja#1032).
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
+      codeql-action-security:
+        applies-to: security-updates
+        patterns:
+          - "github/codeql-action*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

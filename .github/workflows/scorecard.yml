@@ -1,0 +1,57 @@
+# OSSF Scorecard — F4. A measurement, not a target: several checks assess process this
+# single-maintainer repo deliberately does not run. What it is good at is catching
+# regressions that do matter here: an unpinned action, a token with more scope than it
+# needs, a dependency update path gone stale.
+#
+# No pull_request trigger, so the first score comes from the first push to main after
+# the PR that adds this. Record it in CHANGELOG.md with its date.
+name: Scorecard
+
+on:
+  branch_protection_rule:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, Sunday 04:53 UTC, offset from codeql.yml and secret-scan.yml.
+    - cron: "53 4 * * 0"
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      # publish_results exchanges this for an OIDC token so the public API can attest
+      # the result came from this repository.
+      id-token: write
+      contents: read
+      actions: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publishes to the public OpenSSF API: a new outbound publication from this repo,
+          # named in this build's audit request.
+          publish_results: true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload to code-scanning
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: results.sarif

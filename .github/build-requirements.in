@@ -1,0 +1,7 @@
+# Build tools for ci.yml `build` and release.yml `build`, compiled with hashes into
+# build-requirements.txt (audit R2-03). Regenerate after editing:
+#   uv pip compile --generate-hashes --python-version 3.13 \
+#     .github/build-requirements.in -o .github/build-requirements.txt
+build==1.6.1
+setuptools==84.0.0
+wheel==0.48.0
