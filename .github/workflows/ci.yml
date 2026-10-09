@@ -181,9 +181,9 @@ jobs:
         with:
           python-version: "3.13"
 
-      # Same pins as release.yml, so CI builds the artefact the release will build.
+      # Same hash-locked set as release.yml, so CI builds the artefact the release will.
       - name: Install build tools
-        run: pip install "build==1.6.1" "setuptools==84.0.0" "wheel==0.48.0"
+        run: pip install --require-hashes -r .github/build-requirements.txt
 
       - name: Build sdist and wheel
         run: python -m build --no-isolation

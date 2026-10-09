@@ -34,6 +34,21 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
+  # The release build tools (.github/build-requirements.txt, hash-locked, compiled from
+  # build-requirements.in). Without this entry the hashes would only ever be bumped by
+  # hand (audit R2-03). Grouped so build/setuptools/wheel move in one PR.
+  - package-ecosystem: "pip"
+    directory: "/.github"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      build-tools:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

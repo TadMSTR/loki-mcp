@@ -22,12 +22,12 @@ jobs:
         with:
           python-version: "3.13"
 
-      # Pinned, and the backend too (--no-isolation uses these instead of resolving
-      # setuptools fresh): the release artefacts are what a deploy may install, and
-      # everything else in this repo is pinned by SHA or lock (audit F-04). Dependabot does
-      # not see pins inside `run:`; bump these by hand, together with ci.yml's copy.
+      # Hash-locked, transitive dependencies included, and the backend too (--no-isolation
+      # uses these instead of resolving setuptools fresh): the release artefacts are what
+      # a deploy may install, and everything else here is pinned by SHA or lock (audit
+      # F-04, R2-03). Dependabot's pip ecosystem keeps .github/build-requirements.txt current.
       - name: Install build tools
-        run: pip install "build==1.6.1" "setuptools==84.0.0" "wheel==0.48.0"
+        run: pip install --require-hashes -r .github/build-requirements.txt
 
       - name: Build sdist and wheel
         run: python -m build --no-isolation

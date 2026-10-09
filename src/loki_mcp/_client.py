@@ -84,6 +84,10 @@ def validate_tenant_value(value: str, source: str) -> str:
             "the one named."
         )
     parts = value.split("|")
+    if len(set(parts)) != len(parts):
+        # Loki de-duplicates the list, so `edge|edge` is served as the single tenant
+        # `edge` and Loki adds no __tenant_id__ of its own (measured, audit R2-02).
+        raise ValueError(f"{source}: {value!r} names a tenant more than once.")
     for part in parts:
         if part == "":
             raise ValueError(f"{source}: {value!r} has an empty tenant segment.")

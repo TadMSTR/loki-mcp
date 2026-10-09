@@ -226,3 +226,22 @@ async def test_forged_tenant_label_loses_to_loki_on_a_multi_tenant_read(live) ->
     out = await server.query_logs(f'{{run="{SPOOF}"}}', start="-1h")
     assert out["count"] == 2
     assert {row["labels"]["__tenant_id__"] for row in out["lines"]} == {"edge"}
+
+
+async def test_get_streams_forged_tenant_label_under_a_multi_tenant_header(live) -> None:
+    # Audit R2-01, against real Loki: raw /series under `main|edge` returns the pushed
+    # __tenant_id__="main" on an `edge` stream. get_streams must report `edge`.
+    raw = httpx.get(
+        f"{LIVE}/loki/api/v1/series",
+        headers={"X-Scope-OrgID": "main|edge"},
+        params={"match[]": f'{{run="{SPOOF}"}}'},
+        timeout=10,
+    ).json()["data"]
+    assert any(s.get("__tenant_id__") == "main" for s in raw), raw  # the defect is real
+
+    live(LOKI_ORG_ID="main|edge")
+    out = await server.get_streams(f'{{run="{SPOOF}"}}')
+    assert out["streams"], out
+    for s in out["streams"]:
+        assert s["__tenant_id__"] == "edge", s
+    assert any(s.get("original___tenant_id__") == "main" for s in out["streams"])

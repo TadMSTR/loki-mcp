@@ -143,6 +143,19 @@ Found beyond the list:
     it is now a `ToolError`, and an out-of-range timestamp from Loki is returned raw
     rather than failing the result.
   - **F-08.** The instructions say log lines and label values are untrusted data.
+- Security re-check round 2 (2026-10-08):
+  - **R2-01.** Loki's multi-tenant `/series` adds its own `__tenant_id__` only to streams
+    that lack one, so `get_streams` under `main|fake` still returned a pushed one
+    (measured). On a multi-tenant header `get_streams` now asks each tenant on its own
+    and sets `__tenant_id__` from the tenant it asked; a pushed one becomes
+    `original___tenant_id__`. Live test:
+    `test_get_streams_forged_tenant_label_under_a_multi_tenant_header`.
+  - **R2-02.** Loki serves `edge|edge` as the single tenant `edge`, so a header with a
+    repeated tenant looked multi-tenant to the F-01 guard while Loki added no label. A
+    repeated tenant is now refused at startup, and the guard counts distinct tenants.
+  - **R2-03.** The build tools install from a hash-locked
+    `.github/build-requirements.txt` (transitive dependencies included), which a new
+    Dependabot `pip` entry keeps current.
 - `pydantic` is now imported directly (tool-argument constraints), so it is declared rather than relied on through fastmcp.
 
 ### Upgrading

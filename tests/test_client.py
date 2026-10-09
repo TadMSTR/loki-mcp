@@ -336,3 +336,13 @@ def test_tenant_with_newline_refused(value: str) -> None:
     # and then failed every call as "Cannot reach Loki".
     with pytest.raises(ConfigError):
         load_config({"LOKI_ORG_ID": value})
+
+
+@pytest.mark.parametrize("value", ["edge|edge", "main|fake|main"])
+def test_duplicate_tenant_refused(value: str) -> None:
+    # Audit R2-02: Loki de-duplicates, so `edge|edge` is a single-tenant read in which a
+    # pushed __tenant_id__ passes through, while it looks multi-tenant.
+    with pytest.raises(ConfigError, match="more than once"):
+        load_config({"LOKI_ORG_ID": value})
+    with pytest.raises(ConfigError, match="more than once"):
+        load_config({"LOKI_TENANTS": f"ok,{value}"})

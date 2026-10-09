@@ -705,3 +705,52 @@ def test_overflowing_duration_is_a_tool_error() -> None:
 def test_out_of_range_timestamps_are_returned_raw() -> None:
     assert server._iso_ns(10**30) == str(10**30)
     assert server._iso_s(1e20) == str(1e20)
+
+
+# ── Round-2 re-check fixes ────────────────────────────────────────────────────
+
+
+@respx.mock
+async def test_get_streams_multi_tenant_sets_tenant_from_the_tenant_queried(env) -> None:
+    # R2-01: Loki's multi-tenant /series keeps a pushed __tenant_id__ (measured). The tool
+    # now asks each tenant on its own and sets the label from the tenant it asked.
+    env(LOKI_ORG_ID="main|edge")
+    seen: list[str] = []
+
+    def by_tenant(request):
+        org = request.headers["X-Scope-OrgID"]
+        seen.append(org)
+        data = {
+            "main": [{"job": "a"}],
+            "edge": [{"job": "b", "__tenant_id__": "main"}, "not-a-dict"],
+        }[org]
+        return Response(200, json={"data": data})
+
+    respx.get(f"{LOKI}/loki/api/v1/series").mock(side_effect=by_tenant)
+    out = await get_streams("{}")
+    assert seen == ["main", "edge"]
+    assert out["streams"] == [
+        {"job": "a", "__tenant_id__": "main"},
+        {"job": "b", "original___tenant_id__": "main", "__tenant_id__": "edge"},
+    ]
+    assert out["tenant"] == "main|edge"
+
+
+@respx.mock
+async def test_get_streams_single_tenant_is_one_call(env) -> None:
+    env(LOKI_ORG_ID="edge")
+    route = respx.get(f"{LOKI}/loki/api/v1/series").mock(
+        return_value=Response(200, json={"data": [{"job": "b"}]})
+    )
+    out = await get_streams("{}")
+    assert route.call_count == 1
+    assert out["streams"] == [{"job": "b"}]
+
+
+@pytest.mark.parametrize(
+    ("org", "multi"),
+    [(None, False), ("edge", False), ("edge|edge", False), ("main|edge", True)],
+)
+def test_multi_tenant_means_distinct_tenants(org, multi) -> None:
+    # R2-02: Loki serves `edge|edge` as the single tenant `edge`.
+    assert server._is_multi_tenant(org) is multi
