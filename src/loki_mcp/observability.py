@@ -29,6 +29,18 @@ _LOG_BACKUPS = 3
 _QUIET_LOGGERS = ("httpx", "httpcore", "mcp.server.lowlevel.server")
 
 
+class _OwnerOnlyRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """Every file it creates, including each one a rollover creates, is 0600.
+
+    The stock handler opens with the process umask, so a chmod after setup covered only
+    the first file: after one rollover the live log was 0644 again (measured, umask 022).
+    """
+
+    def _open(self):
+        fd = os.open(self.baseFilename, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        return os.fdopen(fd, self.mode, encoding=self.encoding, errors=self.errors)
+
+
 def configure_logging() -> None:
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
     log_file = os.getenv("LOG_FILE", "/opt/appdata/loki-mcp/logs/loki-mcp.log")
@@ -47,11 +59,12 @@ def configure_logging() -> None:
         if log_dir:
             os.makedirs(log_dir, exist_ok=True)
         handlers.append(
-            logging.handlers.RotatingFileHandler(
+            _OwnerOnlyRotatingFileHandler(
                 log_file, maxBytes=_LOG_MAX_BYTES, backupCount=_LOG_BACKUPS
             )
         )
-        # Owner-only. The 0.1.x file was 644.
+        # A file that already existed keeps its mode through os.open, and the 0.1.x one
+        # was 644, so tighten it once here too.
         os.chmod(log_file, 0o600)
 
     root_logger = logging.getLogger()

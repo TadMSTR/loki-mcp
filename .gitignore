@@ -10,6 +10,11 @@ htmlcov/
 .ruff_cache/
 *.log
 
+# Core dumps can hold process memory, credentials included.
+core
+core.*
+*.core
+
 # Credentials written as environment files (B6).
 .env
 *.env

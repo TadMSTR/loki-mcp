@@ -537,7 +537,7 @@ async def test_tool_list_every_tool_read_only_with_tenant() -> None:
     assert set(tools) == _TOOLS
     for t in tools.values():
         assert t.annotations is not None and t.annotations.readOnlyHint is True, t.name
-        assert "tenant" in t.inputSchema["properties"], t.name
+        assert "tenant" in t.input_schema["properties"], t.name
 
 
 @respx.mock

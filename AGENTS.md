@@ -67,6 +67,7 @@ uv.lock               committed lock; CI installs from it (`uv sync --frozen`)
 | `LOKI_ORG_ID` | unset → no header | e.g. `main\|fake` |
 | `LOKI_TENANTS` | unset → `tenant` refused | e.g. `main\|fake,edge` |
 | `LOKI_TIMEOUT` | `30` | seconds |
+| `LOKI_MAX_BODY_BYTES` | 32 MiB | read cap before parsing |
 | `LOKI_MAX_LINE_CHARS` | `2000` | |
 | `LOKI_MAX_RESPONSE_CHARS` | `100000` | |
 | `LOG_LEVEL`, `LOG_FILE`, `OTEL_EXPORTER_OTLP_ENDPOINT` | see README | |

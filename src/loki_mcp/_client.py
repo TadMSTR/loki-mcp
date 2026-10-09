@@ -17,16 +17,22 @@ Configuration (read once, validated at startup by ``main()``):
                 exactly ``main|fake`` and ``edge``. Unset: per-call ``tenant`` is
                 refused.
   LOKI_TIMEOUT  Seconds per request. Default 30.
+  LOKI_MAX_BODY_BYTES
+                Largest Loki response body read before it is refused. Default 32 MiB.
+                The per-tool result budget (server.py) applies after parsing; this one
+                bounds what is held in memory to parse at all.
 """
 
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import re
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 import structlog
@@ -61,6 +67,7 @@ class Config:
     org_id: str | None
     tenants: tuple[str, ...]
     timeout: float
+    max_body_bytes: int
 
 
 def validate_tenant_value(value: str, source: str) -> str:
@@ -119,7 +126,17 @@ def load_config(env: dict[str, str] | None = None) -> Config:
     if not 0 < timeout <= 600:
         raise ConfigError(f"LOKI_TIMEOUT: {timeout} is outside (0, 600] seconds.")
 
-    return Config(url=url, org_id=org_id, tenants=tuple(tenants), timeout=timeout)
+    raw_body = env.get("LOKI_MAX_BODY_BYTES") or str(32 * 1024 * 1024)
+    try:
+        max_body = int(raw_body)
+    except ValueError:
+        raise ConfigError(f"LOKI_MAX_BODY_BYTES: {raw_body!r} is not an integer.") from None
+    if not 1024 <= max_body <= 1024**3:
+        raise ConfigError(f"LOKI_MAX_BODY_BYTES: {max_body} is outside [1024, 1 GiB].")
+
+    return Config(
+        url=url, org_id=org_id, tenants=tuple(tenants), timeout=timeout, max_body_bytes=max_body
+    )
 
 
 _config: Config | None = None
@@ -168,18 +185,56 @@ def resolve_tenant(tenant: str | None) -> str | None:
 _ERROR_BODY_MAX = 500
 
 
-def _loki_error(resp: httpx.Response, path: str, org: str | None) -> ToolError:
-    body = resp.text.strip()
-    if len(body) > _ERROR_BODY_MAX:
-        body = body[:_ERROR_BODY_MAX] + "…"
-    if resp.status_code == 401 and "no org id" in body:
+def redact_url(url: str) -> str:
+    """``url`` without any ``user:password@`` part, for messages and logs."""
+    parts = urlsplit(url)
+    if parts.username is None and parts.password is None:
+        return url
+    host = parts.hostname or ""
+    if parts.port is not None:
+        host = f"{host}:{parts.port}"
+    return urlunsplit((parts.scheme, host, parts.path, parts.query, parts.fragment))
+
+
+class _BodyTooLarge(Exception):
+    pass
+
+
+def _loki_error(status: int, body: str, path: str, org: str | None) -> ToolError:
+    body = body.strip()
+    if status == 401 and "no org id" in body:
         return ToolError(
             "Loki refused the request with 401 'no org id': it runs with auth_enabled and "
             "this call sent no X-Scope-OrgID. Set LOKI_ORG_ID on the server (for example "
             "'main|fake') or pass tenant."
         )
     where = f" (tenant {org!r})" if org else ""
-    return ToolError(f"Loki returned {resp.status_code} for {path}{where}: {body or '<empty>'}")
+    if status >= 500:
+        # A 4xx body is about the request (a LogQL parse error, a bad parameter) and the
+        # agent needs it to fix the query. A 5xx body is about Loki's own state and can
+        # name internal components and addresses, so it goes to the log, not the agent.
+        _log.warning("loki_server_error", path=path, status=status, body=body[:2000])
+        return ToolError(
+            f"Loki returned {status} for {path}{where}: server-side error; details are in "
+            "the loki-mcp log. Retry, or narrow the query."
+        )
+    if len(body) > _ERROR_BODY_MAX:
+        body = body[:_ERROR_BODY_MAX] + "…"
+    return ToolError(f"Loki returned {status} for {path}{where}: {body or '<empty>'}")
+
+
+async def _read_capped(resp: httpx.Response, limit: int) -> bytes:
+    declared = resp.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > limit:
+        raise _BodyTooLarge
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in resp.aiter_bytes():
+        total += len(chunk)
+        if total > limit:
+            raise _BodyTooLarge
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 async def loki_get(path: str, params: dict[str, str], org: str | None) -> Any:
@@ -209,22 +264,32 @@ async def loki_get(path: str, params: dict[str, str], org: str | None) -> Any:
                 # handful of requests per agent session to a loopback Loki over plain
                 # HTTP, so a pooled client saves nothing measurable, while a module-level
                 # one is bound to the first event loop that used it.
-                async with httpx.AsyncClient(base_url=cfg.url, timeout=cfg.timeout) as client:
-                    resp = await client.get(path, params=params, headers=headers)
+                async with (
+                    httpx.AsyncClient(base_url=cfg.url, timeout=cfg.timeout) as client,
+                    client.stream("GET", path, params=params, headers=headers) as resp,
+                ):
+                    status = resp.status_code
+                    raw = await _read_capped(resp, cfg.max_body_bytes)
+            except _BodyTooLarge:
+                raise ToolError(
+                    f"Loki's response for {path} exceeded LOKI_MAX_BODY_BYTES="
+                    f"{cfg.max_body_bytes}. Narrow the time range or selector, or lower limit."
+                ) from None
             except httpx.TimeoutException:
                 raise ToolError(
                     f"Loki did not answer {path} within {cfg.timeout:g}s (LOKI_TIMEOUT). "
                     "Narrow the time range or the selector."
                 ) from None
             except httpx.TransportError as exc:
-                raise ToolError(f"Cannot reach Loki at {cfg.url} ({type(exc).__name__}).") from None
-            status = resp.status_code
+                raise ToolError(
+                    f"Cannot reach Loki at {redact_url(cfg.url)} ({type(exc).__name__})."
+                ) from None
             if span is not None:
                 span.set_attribute("http.status_code", status)
-            if resp.status_code != 200:
-                raise _loki_error(resp, path, org)
+            if status != 200:
+                raise _loki_error(status, raw.decode("utf-8", "replace"), path, org)
             try:
-                return resp.json()
+                return json.loads(raw)
             except ValueError:
                 raise ToolError(f"Loki returned non-JSON for {path}.") from None
     finally:

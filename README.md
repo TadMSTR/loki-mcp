@@ -84,10 +84,11 @@ header. Loki's `tail` and `push` do not, and this server calls neither.
 | `LOKI_ORG_ID` | unset (no header) | Default `X-Scope-OrgID`, e.g. `main\|fake` |
 | `LOKI_TENANTS` | unset (`tenant` refused) | Allowed `tenant` values, e.g. `main\|fake,edge` |
 | `LOKI_TIMEOUT` | `30` | Seconds per Loki request |
+| `LOKI_MAX_BODY_BYTES` | `33554432` (32 MiB) | Largest Loki response read; a bigger one is refused before parsing |
 | `LOKI_MAX_LINE_CHARS` | `2000` | Longer log lines are cut and marked `line_truncated_chars` |
 | `LOKI_MAX_RESPONSE_CHARS` | `100000` | Size budget for one result; beyond it items are left out and `truncated` is set |
 | `LOG_LEVEL` | `INFO` | Server log level |
-| `LOG_FILE` | `/opt/appdata/loki-mcp/logs/loki-mcp.log` | Rotating log (5 MB × 3, mode 600); empty for stderr only |
+| `LOG_FILE` | `/opt/appdata/loki-mcp/logs/loki-mcp.log` | Rotating log (5 MB × 3, every file mode 600); empty for stderr only |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Enables one span per Loki request (needs the `otel` extra) |
 
 An invalid value stops the server at startup with the variable named, rather than on
@@ -102,6 +103,12 @@ an agent's first call.
 - **Untrusted label names cannot replace data.** Labels are returned under `labels`,
   never spread into the row, so a pushed label or structured-metadata key called
   `line`, `ts` or `value` cannot overwrite the log line, timestamp or sample.
+- **Bounded reads.** Loki's response is read up to `LOKI_MAX_BODY_BYTES` before it is
+  parsed, and the result handed to the agent is cut to `LOKI_MAX_RESPONSE_CHARS`.
+- **Errors.** A 4xx from Loki (a LogQL error, a bad parameter) is returned with Loki's
+  message, because the agent needs it to fix the query. A 5xx is returned as a generic
+  server-side error and its body goes to the log. Credentials in `LOKI_URL` are never
+  echoed.
 - **The log does not record queries at INFO.** Each request logs path, tenant, status
   and duration. The LogQL text is logged only at `DEBUG`.
 - **No outbound calls except Loki** (and the OTLP endpoint, if set). FastMCP's startup

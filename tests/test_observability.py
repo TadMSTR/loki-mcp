@@ -42,6 +42,25 @@ def test_log_file_rotates_and_is_owner_only(tmp_path, monkeypatch) -> None:
     assert stat.S_IMODE(os.stat(log_file).st_mode) == 0o600
 
 
+def test_rotated_files_are_owner_only_too(tmp_path, monkeypatch) -> None:
+    # Baseline FW-03: the stock handler opens with the umask, so after one rollover the
+    # live log and every backup were 0644 again (measured with umask 022).
+    log_file = tmp_path / "loki-mcp.log"
+    monkeypatch.setenv("LOG_FILE", str(log_file))
+    monkeypatch.setattr(observability, "_LOG_MAX_BYTES", 200)
+    old_umask = os.umask(0o022)
+    try:
+        observability.configure_logging()
+        for _ in range(20):
+            logging.getLogger("test-rotation").warning("y" * 50)
+    finally:
+        os.umask(old_umask)
+    files = sorted(tmp_path.iterdir())
+    assert len(files) == 4, files
+    for f in files:
+        assert stat.S_IMODE(os.stat(f).st_mode) == 0o600, f.name
+
+
 def test_existing_world_readable_log_is_tightened(tmp_path, monkeypatch) -> None:
     # A 0.1.x install left the file 644. Recreate that with the umask a default shell
     # has, rather than a chmod to a loose mode (which CodeQL rightly flags anywhere).

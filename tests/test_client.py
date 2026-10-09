@@ -22,6 +22,7 @@ def test_defaults() -> None:
     assert cfg.org_id is None
     assert cfg.tenants == ()
     assert cfg.timeout == 30
+    assert cfg.max_body_bytes == 32 * 1024 * 1024
 
 
 def test_url_trailing_slash_stripped() -> None:
@@ -51,6 +52,8 @@ def test_tenants_allowlist_is_comma_separated_header_values() -> None:
         ("LOKI_TIMEOUT", "soon", "not a number"),
         ("LOKI_TIMEOUT", "0", "outside"),
         ("LOKI_TIMEOUT", "601", "outside"),
+        ("LOKI_MAX_BODY_BYTES", "big", "not an integer"),
+        ("LOKI_MAX_BODY_BYTES", "1023", "outside"),
     ],
 )
 def test_invalid_config_refused(var: str, value: str, match: str) -> None:
@@ -156,7 +159,7 @@ async def test_401_no_org_id_names_the_env_var() -> None:
 
 @respx.mock
 async def test_long_error_body_is_cut() -> None:
-    respx.get(f"{LOKI}/loki/api/v1/labels").mock(return_value=Response(500, text="E" * 5000))
+    respx.get(f"{LOKI}/loki/api/v1/labels").mock(return_value=Response(400, text="E" * 5000))
     with pytest.raises(ToolError) as exc:
         await loki_get("/loki/api/v1/labels", {}, None)
     assert len(str(exc.value)) < 700
@@ -164,9 +167,83 @@ async def test_long_error_body_is_cut() -> None:
 
 @respx.mock
 async def test_empty_error_body() -> None:
-    respx.get(f"{LOKI}/loki/api/v1/labels").mock(return_value=Response(502, text=""))
+    respx.get(f"{LOKI}/loki/api/v1/labels").mock(return_value=Response(404, text=""))
     with pytest.raises(ToolError, match="<empty>"):
         await loki_get("/loki/api/v1/labels", {}, None)
+
+
+@respx.mock
+async def test_5xx_body_goes_to_the_log_not_the_agent(monkeypatch) -> None:
+    # Baseline OE-02: a 5xx body describes Loki's internals (components, addresses).
+    logged = []
+    monkeypatch.setattr(
+        _client._log, "warning", lambda event, **kw: logged.append((event, kw)), raising=False
+    )
+    body = "rpc error: code = Unavailable desc = connection refused to 172.20.24.3:9095"
+    respx.get(f"{LOKI}/loki/api/v1/labels").mock(return_value=Response(500, text=body))
+    with pytest.raises(ToolError) as exc:
+        await loki_get("/loki/api/v1/labels", {}, "main")
+    assert "500" in str(exc.value) and "server-side error" in str(exc.value)
+    assert "172.20.24.3" not in str(exc.value)
+    assert logged and logged[0][0] == "loki_server_error" and "172.20.24.3" in logged[0][1]["body"]
+
+
+@respx.mock
+async def test_body_over_cap_refused_by_content_length(env) -> None:
+    # Baseline IV-14: bound what is read before json parsing, not only what is returned.
+    env(LOKI_MAX_BODY_BYTES="2048")
+    respx.get(f"{LOKI}/loki/api/v1/labels").mock(
+        return_value=Response(200, content=b"x" * 4096, headers={"content-length": "4096"})
+    )
+    with pytest.raises(ToolError, match="LOKI_MAX_BODY_BYTES=2048"):
+        await loki_get("/loki/api/v1/labels", {}, None)
+
+
+@respx.mock
+async def test_body_over_cap_refused_while_streaming(env) -> None:
+    # No (or a lying) Content-Length: the streamed byte count is what decides.
+    env(LOKI_MAX_BODY_BYTES="2048")
+
+    async def chunks():
+        for _ in range(4):
+            yield b"x" * 1024
+
+    respx.get(f"{LOKI}/loki/api/v1/labels").mock(return_value=Response(200, content=chunks()))
+    with pytest.raises(ToolError, match="LOKI_MAX_BODY_BYTES"):
+        await loki_get("/loki/api/v1/labels", {}, None)
+
+
+@respx.mock
+async def test_body_under_cap_is_parsed(env) -> None:
+    env(LOKI_MAX_BODY_BYTES="2048")
+    respx.get(f"{LOKI}/loki/api/v1/labels").mock(
+        return_value=Response(200, json={"data": ["a"] * 100})
+    )
+    assert (await loki_get("/loki/api/v1/labels", {}, None))["data"][0] == "a"
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("http://user:s3cret@loki:3100/base", "http://loki:3100/base"),
+        ("http://user@loki", "http://loki"),
+        ("http://loki:3100", "http://loki:3100"),
+    ],
+)
+def test_redact_url(url: str, expected: str) -> None:
+    assert _client.redact_url(url) == expected
+
+
+@respx.mock
+async def test_unreachable_error_does_not_print_url_credentials(env) -> None:
+    # Baseline SC-14: LOKI_URL may carry basic-auth credentials.
+    env(LOKI_URL="http://user:s3cret@loki.example:3100")
+    respx.get("http://loki.example:3100/loki/api/v1/labels").mock(
+        side_effect=httpx.ConnectError("refused")
+    )
+    with pytest.raises(ToolError) as exc:
+        await loki_get("/loki/api/v1/labels", {}, None)
+    assert "s3cret" not in str(exc.value) and "loki.example:3100" in str(exc.value)
 
 
 @respx.mock

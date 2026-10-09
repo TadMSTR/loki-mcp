@@ -24,7 +24,7 @@ reinstall, not a restart: the package moved to `src/` and the dependency set cha
   neither. The `live-loki` CI job re-checks it on every change.
 - `query_instant` (`/query`), `get_volume` (`/index/volume`, `/index/volume_range` with
   `step`), `get_stats` (`/index/stats`) and `get_detected_fields` (`/detected_fields`).
-- `LOKI_TIMEOUT`, `LOKI_MAX_LINE_CHARS`, `LOKI_MAX_RESPONSE_CHARS`. Invalid configuration
+- `LOKI_TIMEOUT`, `LOKI_MAX_BODY_BYTES`, `LOKI_MAX_LINE_CHARS`, `LOKI_MAX_RESPONSE_CHARS`. Invalid configuration
   stops the server at startup with exit 2 and the variable named.
 - MCP `readOnlyHint` / `idempotentHint` annotations on every tool.
 - Live tests against a real multi-tenant Loki (`-m live`, CI job `live-loki`).
@@ -54,7 +54,7 @@ reinstall, not a restart: the package moved to `src/` and the dependency set cha
 - The log file rotates (5 MB × 3) and is mode 600. `httpx`, `httpcore` and the MCP
   SDK's request logger are held at WARNING. loki-mcp logs one line per Loki request
   (path, tenant, status, duration) and the LogQL text only at DEBUG.
-- Coverage floor 80 → 99 (measured 99.75%).
+- Coverage floor 80 → 99 (measured 99.78%).
 
 ### Fixed — defect review
 Research's nine hypotheses, each proved or refuted before fixing, plus what the review
@@ -106,6 +106,18 @@ Found beyond the list:
   data". Test: `test_nan_survives_serialisation_as_a_string`.
 - `ecosystem.config.js` described a PM2 daemon; loki-mcp is a stdio subprocess of its
   MCP client and never ran that way. Removed.
+- Pre-audit security baseline:
+  - the log rotated into 0644 files: the stock `RotatingFileHandler` opens with the
+    umask, so a chmod after setup covered only the first file (measured, umask 022).
+    Every file it creates is now opened 0600. Test: `test_rotated_files_are_owner_only_too`.
+  - Loki's response body was read whole before any cap. Now streamed up to
+    `LOKI_MAX_BODY_BYTES`. Tests: `test_body_over_cap_refused_*`.
+  - a 5xx body (which can name Loki's internal components and addresses) reached the
+    agent; it now goes to the log, and 4xx text still reaches the agent. Test:
+    `test_5xx_body_goes_to_the_log_not_the_agent`.
+  - `Cannot reach Loki at <url>` would have printed `user:password@` from `LOKI_URL`.
+    Test: `test_unreachable_error_does_not_print_url_credentials`.
+  - `.gitignore` gains `core`, `core.*`, `*.core`.
 - `pydantic` is now imported directly (tool-argument constraints), so it is declared rather than relied on through fastmcp.
 
 ### Upgrading
