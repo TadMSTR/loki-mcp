@@ -181,11 +181,12 @@ jobs:
         with:
           python-version: "3.13"
 
+      # Same pins as release.yml, so CI builds the artefact the release will build.
       - name: Install build tools
-        run: pip install build
+        run: pip install "build==1.6.1" "setuptools==84.0.0" "wheel==0.48.0"
 
       - name: Build sdist and wheel
-        run: python -m build
+        run: python -m build --no-isolation
 
       # The src/ move needs `where = ["src"]`; without it the wheel builds empty and
       # nothing else notices until someone installs it. Both entry points are checked.

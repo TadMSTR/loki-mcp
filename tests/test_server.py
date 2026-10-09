@@ -580,3 +580,128 @@ def test_main_exits_on_bad_config(monkeypatch, capsys) -> None:
 
 def test_iso_helper_matches_datetime() -> None:
     assert server._iso_s(0) == datetime(1970, 1, 1, tzinfo=UTC).isoformat()
+
+
+# ── Audit fixes (argus-observability-2026-10 p1d) ─────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("org", "expected"),
+    [
+        (None, {"job": "j", "original___tenant_id__": "main"}),
+        ("edge", {"job": "j", "original___tenant_id__": "main"}),
+        ("main|fake", {"job": "j", "__tenant_id__": "main"}),
+    ],
+)
+def test_pushed_tenant_label_renamed_on_single_tenant_reads(org, expected) -> None:
+    # F-01: Loki passes a pushed __tenant_id__ through on single-tenant reads (measured)
+    # and only sets its own on multi-tenant ones.
+    assert server._guard_tenant_label({"job": "j", "__tenant_id__": "main"}, org) == expected
+
+
+def test_labels_without_tenant_label_untouched() -> None:
+    labels = {"job": "j"}
+    assert server._guard_tenant_label(labels, "edge") is labels
+
+
+@respx.mock
+async def test_query_logs_single_tenant_cannot_claim_another_tenant(env) -> None:
+    env(LOKI_TENANTS="edge")
+    respx.get(QR).mock(
+        return_value=Response(200, json=_streams(({"__tenant_id__": "main"}, [(1, "x")])))
+    )
+    out = await query_logs('{job="x"}', start="-1h", tenant="edge")
+    labels = out["lines"][0]["labels"]
+    assert "__tenant_id__" not in labels
+    assert labels["original___tenant_id__"] == "main"
+    assert out["tenant"] == "edge"
+
+
+@respx.mock
+async def test_metric_and_series_results_guard_the_tenant_label(env) -> None:
+    env(LOKI_ORG_ID="edge")
+    spoof = {"__tenant_id__": "main"}
+    respx.get(QR).mock(
+        return_value=Response(200, json=_ok("matrix", [{"metric": spoof, "values": [[1, "1"]]}]))
+    )
+    respx.get(f"{LOKI}/loki/api/v1/query").mock(
+        return_value=Response(200, json=_ok("vector", [{"metric": spoof, "value": [1, "1"]}]))
+    )
+    respx.get(f"{LOKI}/loki/api/v1/series").mock(
+        return_value=Response(200, json={"data": [spoof, "not-a-dict"]})
+    )
+    respx.get(f"{LOKI}/loki/api/v1/index/volume").mock(
+        return_value=Response(200, json=_ok("vector", [{"metric": spoof, "value": [1, "9"]}]))
+    )
+    results = [
+        (await query_aggregate("x", start="-1h"))["series"][0]["labels"],
+        (await query_instant("x"))["samples"][0]["labels"],
+        (await get_streams("{}"))["streams"][0],
+        (await get_volume("{}"))["volumes"][0]["labels"],
+    ]
+    for labels in results:
+        assert labels == {"original___tenant_id__": "main"}
+
+
+def test_instructions_name_the_authoritative_tenant_and_untrusted_content() -> None:
+    # F-01 / F-08: the instructions told agents to trust __tenant_id__.
+    text = mcp.instructions
+    assert "authoritative" in text and "original___tenant_id__" in text
+    assert "untrusted" in text
+
+
+@respx.mock
+async def test_one_long_series_is_trimmed_and_flagged(env) -> None:
+    # F-02: 10,802 points came back at 551k chars with truncated: false.
+    env(LOKI_MAX_RESPONSE_CHARS="2000")
+    points = [[1700000000 + i, "1"] for i in range(500)]
+    respx.get(QR).mock(
+        return_value=Response(200, json=_ok("matrix", [{"metric": {"a": "b"}, "values": points}]))
+    )
+    out = await query_aggregate("x", start="-1h")
+    kept = len(out["series"][0]["values"])
+    assert 0 < kept < 500
+    assert out["truncated"] is True
+    assert f"{500 - kept} of 500 points of the first item omitted" in out["note"]
+    assert "larger than the budget" not in out["note"]
+    assert len(json.dumps(out["series"])) <= 2000 + 200
+
+
+@respx.mock
+async def test_one_oversized_item_without_values_is_flagged(env) -> None:
+    env(LOKI_MAX_RESPONSE_CHARS="100")
+    respx.get(f"{LOKI}/loki/api/v1/series").mock(
+        return_value=Response(200, json={"data": [{"k": "v" * 500}]})
+    )
+    out = await get_streams("{}")
+    assert out["count"] == 1 and out["truncated"] is True
+    assert "larger than the budget on its own" in out["note"]
+
+
+@pytest.mark.parametrize("label", ["job\n", "job\nx"])
+async def test_label_with_newline_rejected(label: str) -> None:
+    # F-05: `$` matched before a trailing newline, so "job\n" passed.
+    with pytest.raises(ToolError, match="Invalid label name"):
+        await get_label_values(label)
+
+
+async def test_target_label_with_newline_rejected() -> None:
+    with pytest.raises(ToolError, match="target_labels"):
+        await get_volume("{}", target_labels=["job\n"])
+
+
+def test_step_with_newline_rejected() -> None:
+    # _check_step strips, so only an embedded newline can reach the regex.
+    with pytest.raises(ToolError, match="Invalid step"):
+        _check_step("5m\n1h")
+
+
+def test_overflowing_duration_is_a_tool_error() -> None:
+    # F-06: float('9'*400) is inf; int(inf) raised OverflowError.
+    with pytest.raises(ToolError, match="out of range"):
+        _parse_time("9" * 400 + "w")
+
+
+def test_out_of_range_timestamps_are_returned_raw() -> None:
+    assert server._iso_ns(10**30) == str(10**30)
+    assert server._iso_s(1e20) == str(1e20)

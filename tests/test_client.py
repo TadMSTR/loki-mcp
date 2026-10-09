@@ -328,3 +328,11 @@ async def test_a_span_is_opened_per_request_when_tracing_is_on(monkeypatch) -> N
     assert spans[0].attributes["loki.path"] == "/loki/api/v1/labels"
     assert spans[0].attributes["loki.tenant"] == "edge"
     assert spans[0].attributes["http.status_code"] == 200
+
+
+@pytest.mark.parametrize("value", ["main\n", "main|fake\n", "edge\nx"])
+def test_tenant_with_newline_refused(value: str) -> None:
+    # Audit F-05: `$` matched before a trailing newline, so "main\n" passed load_config
+    # and then failed every call as "Cannot reach Loki".
+    with pytest.raises(ConfigError):
+        load_config({"LOKI_ORG_ID": value})

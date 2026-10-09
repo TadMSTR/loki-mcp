@@ -54,7 +54,7 @@ reinstall, not a restart: the package moved to `src/` and the dependency set cha
 - The log file rotates (5 MB × 3) and is mode 600. `httpx`, `httpcore` and the MCP
   SDK's request logger are held at WARNING. loki-mcp logs one line per Loki request
   (path, tenant, status, duration) and the LogQL text only at DEBUG.
-- Coverage floor 80 → 99 (measured 99.78%).
+- Coverage floor 80 → 99 (measured 99.80%).
 
 ### Fixed — defect review
 Research's nine hypotheses, each proved or refuted before fixing, plus what the review
@@ -118,6 +118,31 @@ Found beyond the list:
   - `Cannot reach Loki at <url>` would have printed `user:password@` from `LOKI_URL`.
     Test: `test_unreachable_error_does_not_print_url_credentials`.
   - `.gitignore` gains `core`, `core.*`, `*.core`.
+- Security audit (2026-10-08):
+  - **F-01 (Medium).** On a single-tenant read Loki passes a pushed `__tenant_id__`
+    through unaltered (measured, as structured metadata and as a stream label), so
+    lines pushed into one tenant could claim another. loki-mcp now renames it to
+    `original___tenant_id__` on single-tenant and header-less reads, as Loki does on
+    multi-tenant ones, across log rows, series, samples, streams and volumes. The
+    server instructions say the envelope `tenant` is authoritative. Tests:
+    `test_pushed_tenant_label_renamed_on_single_tenant_reads`, live
+    `test_forged_tenant_label_is_renamed_on_a_single_tenant_read`.
+  - **F-02.** The response budget kept the first item whole, so one long series
+    (10,802 points, 551k chars) passed a 100k budget with `truncated: false`. Its
+    `values` are now cut to fit, and an item still over budget on its own is flagged.
+    Tests: `test_one_long_series_is_trimmed_and_flagged`,
+    `test_one_oversized_item_without_values_is_flagged`.
+  - **F-04.** The release (and CI) built with an unpinned `pip install build` and a
+    freshly resolved backend; now `build`, `setuptools` and `wheel` are pinned and the
+    build runs `--no-isolation`. The release job no longer checks out the tree, so its
+    write token is not left in `.git/config`.
+  - **F-05.** The tenant, label, step and duration checks used `^…$` with `match`, which
+    accepts a trailing newline; they use `fullmatch`. Tests:
+    `test_tenant_with_newline_refused`, `test_label_with_newline_rejected`.
+  - **F-06.** An overflowing duration (`"9"*400 + "w"`) raised a raw `OverflowError`;
+    it is now a `ToolError`, and an out-of-range timestamp from Loki is returned raw
+    rather than failing the result.
+  - **F-08.** The instructions say log lines and label values are untrusted data.
 - `pydantic` is now imported directly (tool-argument constraints), so it is declared rather than relied on through fastmcp.
 
 ### Upgrading

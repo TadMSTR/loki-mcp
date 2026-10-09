@@ -51,7 +51,8 @@ _log = structlog.get_logger("loki-mcp")
 # value carrying one is not rejected by Loki; it has to be rejected here. Loki does
 # reject ".", a space and a 151-byte ID itself (400), but an error from us names the
 # env var or argument that caused it, which Loki's cannot.
-_TENANT_RE = re.compile(r"^[0-9A-Za-z!\-_.*'()]{1,150}$")
+# Used with fullmatch: `$` also matches before a trailing newline (audit F-05).
+_TENANT_RE = re.compile(r"[0-9A-Za-z!\-_.*'()]{1,150}")
 
 # Loki ignores an empty segment (`main|` reads as `main`, measured), so `main||fake`
 # would quietly mean something other than what was typed. Rejected for that reason.
@@ -88,7 +89,7 @@ def validate_tenant_value(value: str, source: str) -> str:
             raise ValueError(f"{source}: {value!r} has an empty tenant segment.")
         if part in (".", ".."):
             raise ValueError(f"{source}: {part!r} is not a valid tenant ID.")
-        if not _TENANT_RE.match(part):
+        if not _TENANT_RE.fullmatch(part):
             raise ValueError(
                 f"{source}: tenant {part!r} is not a valid Loki tenant ID "
                 "(1-150 characters from 0-9 A-Z a-z ! - _ . * ' ( ))."

@@ -32,6 +32,8 @@ pytestmark = [
 ]
 
 MARK = f"lokimcp-live-{uuid.uuid4().hex[:8]}"
+# A separate run label, so the forged-tenant streams don't change the counts above.
+SPOOF = f"{MARK}-spoof"
 
 
 def _push(tenant: str, labels: dict, lines: list[str], sm: dict | None = None) -> None:
@@ -61,6 +63,10 @@ def seeded():
         [f"{MARK} edge 0"],
         sm={"line": "FORGED-BY-SM"},
     )
+    # Audit F-01: a stream pushed into `edge` claiming to be from `main`, once as
+    # structured metadata and once as a stream label. Loki accepts both (204).
+    _push("edge", {"job": "journal", "run": SPOOF}, [f"{SPOOF} sm"], sm={"__tenant_id__": "main"})
+    _push("edge", {"job": "journal", "run": SPOOF, "__tenant_id__": "main"}, [f"{SPOOF} label"])
     # Log queries see a push at once, but /index/volume leaves out a line until about a
     # second has passed between its timestamp and the query's `end` (measured on 3.7.6:
     # empty with end=now right after the push, present with end=now+5s, and present with
@@ -116,7 +122,7 @@ async def test_single_tenant_has_no_tenant_label(live) -> None:
     assert all("__tenant_id__" not in row["labels"] for row in out["lines"])
 
 
-async def test_tenant_argus_reads_only_argus(live) -> None:
+async def test_per_call_tenant_reads_only_that_tenant(live) -> None:
     live(LOKI_ORG_ID="main|fake", LOKI_TENANTS="main|fake,edge")
     out = await server.query_logs(SEL, start="-1h", tenant="edge")
     assert out["count"] == 1
@@ -200,3 +206,23 @@ async def test_logql_error_text_reaches_the_agent(live) -> None:
 def test_config_reset_after_live_tests() -> None:
     _client.reset_config()
     assert _client.config().url == "http://localhost:3100"
+
+
+async def test_forged_tenant_label_is_renamed_on_a_single_tenant_read(live) -> None:
+    # Audit F-01, against real Loki: on `X-Scope-OrgID: edge` Loki returns the pushed
+    # __tenant_id__="main" unaltered; loki-mcp must not pass that claim on.
+    live(LOKI_TENANTS="edge")
+    out = await server.query_logs(f'{{run="{SPOOF}"}}', start="-1h", tenant="edge")
+    assert out["count"] == 2
+    for row in out["lines"]:
+        assert "__tenant_id__" not in row["labels"], row
+        assert row["labels"]["original___tenant_id__"] == "main"
+    assert out["tenant"] == "edge"
+
+
+async def test_forged_tenant_label_loses_to_loki_on_a_multi_tenant_read(live) -> None:
+    # The multi-tenant path Loki already handles: its own __tenant_id__ wins.
+    live(LOKI_ORG_ID="main|edge")
+    out = await server.query_logs(f'{{run="{SPOOF}"}}', start="-1h")
+    assert out["count"] == 2
+    assert {row["labels"]["__tenant_id__"] for row in out["lines"]} == {"edge"}
