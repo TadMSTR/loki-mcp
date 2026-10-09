@@ -42,10 +42,16 @@ def test_log_file_rotates_and_is_owner_only(tmp_path, monkeypatch) -> None:
     assert stat.S_IMODE(os.stat(log_file).st_mode) == 0o600
 
 
-def test_existing_looser_log_is_tightened(tmp_path, monkeypatch) -> None:
+def test_existing_world_readable_log_is_tightened(tmp_path, monkeypatch) -> None:
+    # A 0.1.x install left the file 644. Recreate that with the umask a default shell
+    # has, rather than a chmod to a loose mode (which CodeQL rightly flags anywhere).
     log_file = tmp_path / "loki-mcp.log"
-    log_file.write_text("old\n")
-    os.chmod(log_file, 0o640)
+    old_umask = os.umask(0o022)
+    try:
+        log_file.write_text("old\n")
+    finally:
+        os.umask(old_umask)
+    assert stat.S_IMODE(os.stat(log_file).st_mode) == 0o644
     monkeypatch.setenv("LOG_FILE", str(log_file))
     observability.configure_logging()
     assert stat.S_IMODE(os.stat(log_file).st_mode) == 0o600
