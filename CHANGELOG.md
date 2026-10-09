@@ -156,6 +156,8 @@ Found beyond the list:
   - **R2-03.** The build tools install from a hash-locked
     `.github/build-requirements.txt` (transitive dependencies included), which a new
     Dependabot `pip` entry keeps current.
+- Security re-check round 3 (2026-10-08): clean. **R3-01 (Info):** the instructions now say
+  `original___tenant_id__` can itself be pushed and proves nothing.
 - `pydantic` is now imported directly (tool-argument constraints), so it is declared rather than relied on through fastmcp.
 
 ### Upgrading

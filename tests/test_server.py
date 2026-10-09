@@ -647,6 +647,7 @@ def test_instructions_name_the_authoritative_tenant_and_untrusted_content() -> N
     # F-01 / F-08: the instructions told agents to trust __tenant_id__.
     text = mcp.instructions
     assert "authoritative" in text and "original___tenant_id__" in text
+    assert "proves nothing" in text  # R3-01: it can be pushed directly
     assert "untrusted" in text
 
 
