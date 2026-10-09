@@ -91,14 +91,14 @@ def configure_logging() -> None:
 # but nothing called it, so the "OTEL tracing opt-in" that release announced never ran.
 # ---------------------------------------------------------------------------
 
-_tracer = None
-_tracer_failed = False
+# One dict rather than two module globals: "tracer" is the tracer once built, "failed"
+# records that building it failed, so the import is not retried on every request.
+_state: dict = {"tracer": None, "failed": False}
 
 
 def get_tracer():
-    global _tracer, _tracer_failed
-    if _tracer is not None or _tracer_failed:
-        return _tracer
+    if _state["tracer"] is not None or _state["failed"]:
+        return _state["tracer"]
     endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     if not endpoint:
         return None
@@ -113,10 +113,10 @@ def get_tracer():
         provider = TracerProvider(resource=resource)
         provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
         trace.set_tracer_provider(provider)
-        _tracer = trace.get_tracer("loki-mcp")
+        _state["tracer"] = trace.get_tracer("loki-mcp")
     except Exception:
         # Once. Without the flag a missing [otel] extra retried the import, and logged,
         # on every request.
-        _tracer_failed = True
+        _state["failed"] = True
         structlog.get_logger().warning("otel_init_failed", exc_info=True)
-    return _tracer
+    return _state["tracer"]

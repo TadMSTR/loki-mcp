@@ -241,7 +241,7 @@ async def test_a_span_is_opened_per_request_when_tracing_is_on(monkeypatch) -> N
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    monkeypatch.setattr(observability, "_tracer", provider.get_tracer("test"))
+    monkeypatch.setitem(observability._state, "tracer", provider.get_tracer("test"))
 
     respx.get(f"{LOKI}/loki/api/v1/labels").mock(return_value=Response(200, json={"data": []}))
     await loki_get("/loki/api/v1/labels", {}, "edge")

@@ -54,7 +54,7 @@ reinstall, not a restart: the package moved to `src/` and the dependency set cha
 - The log file rotates (5 MB × 3) and is mode 600. `httpx`, `httpcore` and the MCP
   SDK's request logger are held at WARNING. loki-mcp logs one line per Loki request
   (path, tenant, status, duration) and the LogQL text only at DEBUG.
-- Coverage floor 80 → 99 (measured 99.76%).
+- Coverage floor 80 → 99 (measured 99.75%).
 
 ### Fixed — defect review
 Research's nine hypotheses, each proved or refuted before fixing, plus what the review
