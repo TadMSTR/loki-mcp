@@ -31,7 +31,7 @@ jobs:
           allow-prereleases: true
 
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
       # FROM THE LOCK. `--frozen` installs exactly uv.lock and fails rather than re-resolve,
       # so a green run is evidence about the set this project pins, not about whatever a
@@ -74,7 +74,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
       - name: Install dependencies (locked)
         env:
@@ -130,7 +130,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
       # A committed lock nobody checks is a stale file that looks like a pin. This fails
       # when pyproject.toml changed and uv.lock did not.
