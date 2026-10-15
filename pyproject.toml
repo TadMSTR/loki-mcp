@@ -58,7 +58,7 @@ dev = [
     # Pinned exactly: an unpinned formatter is a gate whose result depends on when it ran
     # (signoz-mcp measured local 0.15.22 vs CI 0.16.8 and a red `ruff format --check` on
     # code that had just been formatted). Bumps arrive through Dependabot's dev-tools PR.
-    "ruff==0.16.10",
+    "ruff==0.17.0",
 ]
 
 [project.scripts]
