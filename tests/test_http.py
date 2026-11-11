@@ -254,7 +254,23 @@ def test_process_without_token_exits_nonzero() -> None:
     assert "LOKI_MCP_API_TOKEN" in r.stderr
 
 
-def test_process_serves_health_and_refuses_mcp_without_token() -> None:
+def _stop(proc: subprocess.Popen) -> None:
+    """Terminate, then kill. Never raises, so it can't replace the test's own failure."""
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=10)
+
+
+def test_process_serves_health_and_refuses_mcp_without_token(tmp_path) -> None:
+    # stderr goes to a file, not a pipe: nothing has to drain it while the server runs,
+    # and reading it after a failed start never blocks on a live process.
+    err_path = tmp_path / "stderr"
+    err = err_path.open("wb")
     port = _free_port()
     proc = subprocess.Popen(
         [sys.executable, "-m", "loki_mcp.server"],
@@ -264,7 +280,7 @@ def test_process_serves_health_and_refuses_mcp_without_token() -> None:
             LOKI_MCP_ALLOWED_HOSTS=f"127.0.0.1:{port}",
         ),
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+        stderr=err,
     )
     try:
         url = f"http://127.0.0.1:{port}"
@@ -275,7 +291,9 @@ def test_process_serves_health_and_refuses_mcp_without_token() -> None:
                 break
             except httpx.TransportError:
                 if proc.poll() is not None or time.monotonic() > deadline:
-                    pytest.fail(f"server did not start: {proc.stderr.read().decode()[-2000:]}")
+                    _stop(proc)
+                    tail = err_path.read_bytes().decode(errors="replace")[-2000:]
+                    pytest.fail(f"server did not start: {tail}")
                 time.sleep(0.1)
         assert r.status_code == 200 and r.json() == {"status": "ok"}
         assert httpx.post(f"{url}/mcp", json=INIT, headers=MCP_HEADERS).status_code == 401
@@ -291,5 +309,5 @@ def test_process_serves_health_and_refuses_mcp_without_token() -> None:
         )
         assert httpx.get(f"{url}/health", headers={"host": "evil.example"}).status_code == 421
     finally:
-        proc.terminate()
-        proc.wait(timeout=10)
+        _stop(proc)
+        err.close()
