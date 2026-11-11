@@ -58,6 +58,9 @@ _NAME_RE = re.compile(_NAME)
 # The longest range a single count may cover: 720 h, the max_query_lookback of the Loki this
 # was written against. A range past the server's own lookback would be cut by Loki without
 # saying so.
+# SECURITY[deferred]: hard-coded, not read from Loki's limits; make it configurable.
+# Ticket vikunja#1488. Target: next minor.
+# Audit: 2026-11-11/observability-mcps-2026-11-p1-loki-mcp-v030.
 MAX_RANGE_SECONDS = 720 * 3600
 
 

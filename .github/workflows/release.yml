@@ -123,6 +123,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
+      # SECURITY[deferred]: the push is a second build; nothing compares its amd64 digest
+      # with the verified image. Ticket vikunja#1489. Target: next minor.
+      # Audit: 2026-11-11/observability-mcps-2026-11-p1-loki-mcp-v030.
       # The released bytes are checked before anything is pushed: build the
       # amd64 image locally, run the same fail-closed checks as ci.yml's image job, and only
       # then push. The amd64 layers of the push come from this build's cache. arm64 is built
