@@ -275,6 +275,16 @@ async def test_get_patterns_first_item_samples_are_trimmed_and_noted(env) -> Non
 
 
 @respx.mock
+async def test_get_patterns_non_numeric_sample_ts_does_not_abort_the_call() -> None:
+    # A sample whose timestamp isn't a number is relayed as short text, not a TypeError.
+    samples = [[[1, 2], 3], [{"a": "b" * 500}, 4], [1794415200, 5]]
+    respx.get(PATTERNS).mock(return_value=Response(200, json=_patterns(("p <_>", samples))))
+    out = await get_patterns('{job="docker"}', step="1m")
+    ts = [s["ts"] for s in out["patterns"][0]["samples"]]
+    assert ts[0] == "[1, 2]" and len(ts[1]) == 64 and ts[2].startswith("2026-11-11T")
+
+
+@respx.mock
 async def test_get_patterns_without_step_builds_no_samples(monkeypatch) -> None:
     samples = [[1794415200 + 60 * i, 1] for i in range(10_000)]
     respx.get(PATTERNS).mock(return_value=Response(200, json=_patterns(("p <_>", samples))))

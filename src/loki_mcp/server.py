@@ -308,8 +308,8 @@ def _iso_ns(ns: int) -> str:
 def _iso_s(epoch_s: float | str) -> str:
     try:
         return datetime.fromtimestamp(float(epoch_s), tz=UTC).isoformat()
-    except (OverflowError, OSError, ValueError):
-        return str(epoch_s)
+    except (OverflowError, OSError, TypeError, ValueError):
+        return str(epoch_s)[:64]
 
 
 def _number(raw: str) -> float | str:

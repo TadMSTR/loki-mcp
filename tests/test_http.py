@@ -7,6 +7,7 @@ real process, since a captured mcp.run proves nothing about what uvicorn serves.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import socket
 import subprocess
@@ -263,7 +264,8 @@ def _stop(proc: subprocess.Popen) -> None:
         proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
         proc.kill()
-        proc.wait(timeout=10)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=10)
 
 
 def test_process_serves_health_and_refuses_mcp_without_token(tmp_path) -> None:
