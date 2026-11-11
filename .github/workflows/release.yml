@@ -17,6 +17,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -115,8 +117,57 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      # Lowercased owner, hardcoded: GHCR refuses an uppercase path and the owner is
-      # `TadMSTR`. The tag keeps its leading `v` (`:v0.3.0`).
+      # The released bytes are checked before anything is pushed (KB DC-09): build the
+      # amd64 image locally, run the same fail-closed checks as ci.yml's image job, and only
+      # then push. The amd64 layers of the push come from this build's cache. arm64 is built
+      # from the same Dockerfile and lock but is NOT run here (no arm64 runner); the release
+      # notes say so.
+      - name: Build amd64 for verification
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          push: false
+          platforms: linux/amd64
+          tags: loki-mcp:verify
+          cache-to: type=gha,mode=max
+
+      - name: Smoke-test the release image
+        env:
+          SMOKE_TOKEN: release-smoke-0123456789abcdef
+        run: |
+          set -u
+          if docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+              -e LOKI_MCP_PORT=8511 loki-mcp:verify; then
+            echo "started without a token"; exit 1
+          fi
+          docker run -d --name lm --read-only --cap-drop ALL \
+            --security-opt no-new-privileges -p 127.0.0.1:8511:8511 \
+            -e LOKI_MCP_PORT=8511 -e LOKI_MCP_API_TOKEN="$SMOKE_TOKEN" \
+            -e LOKI_URL=http://loki.invalid:3100 loki-mcp:verify
+          curl -sS --retry 15 --retry-delay 1 --retry-all-errors -o /dev/null http://127.0.0.1:8511/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8511/mcp)" = 401
+          test "$(docker inspect -f '{{.Config.User}}' lm)" = "65534:65534"
+          docker rm -f lm
+
+      # `:latest` moves only for a stable vX.Y.Z tag (KB DC-11). The build job already
+      # requires the tag to equal "v" + the package version, so a PEP 440 prerelease such as
+      # v0.4.0rc1 gets its own tag and leaves :latest alone. Lowercased owner, hardcoded:
+      # GHCR refuses an uppercase path and the owner is `TadMSTR`.
+      - name: Image tags
+        id: tags
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          {
+            echo "list<<EOF"
+            echo "ghcr.io/tadmstr/loki-mcp:${TAG_NAME}"
+            if [[ "${TAG_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "ghcr.io/tadmstr/loki-mcp:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         id: push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -125,9 +176,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           provenance: mode=max
-          tags: |
-            ghcr.io/tadmstr/loki-mcp:${{ github.ref_name }}
-            ghcr.io/tadmstr/loki-mcp:latest
+          cache-from: type=gha
+          tags: ${{ steps.tags.outputs.list }}
 
   # p2 pins tag + digest, and reads the digest from here rather than from whatever
   # `:latest` points at on the day it deploys.
@@ -154,5 +204,8 @@ jobs:
             echo '```'
             echo "ghcr.io/tadmstr/loki-mcp:${TAG_NAME}@${DIGEST}"
             echo '```'
+            echo
+            echo "linux/amd64 was run and smoke-tested before the push; linux/arm64 was built"
+            echo "from the same Dockerfile and lock but not run."
           } >> notes.md
           gh release edit "${TAG_NAME}" --notes-file notes.md

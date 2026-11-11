@@ -27,14 +27,25 @@ WORKDIR /src
 # Dependencies first, without the project, so a source edit does not reinstall them.
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project --no-dev --extra otel
-# Then the project itself, as a regular (non-editable) install: the runtime stage takes
-# /opt/venv and nothing from /src.
-COPY README.md LICENSE ./
-COPY src ./src
-# [otel] is installed deliberately: setting OTEL_EXPORTER_OTLP_ENDPOINT without it does
+# [otel] is in that set deliberately: setting OTEL_EXPORTER_OTLP_ENDPOINT without it does
 # not fail loudly, the exporter import fails once and nothing is ever exported
 # (vikunja#336).
-RUN uv sync --frozen --no-dev --extra otel --no-editable
+
+# The build backend, hash-pinned. uv.lock does not lock build dependencies, so letting
+# uv build the project would fetch whatever setuptools satisfies `>=68` that day. These are
+# the same hashed tools release.yml builds the wheel with (.github/build-requirements.txt,
+# kept current by Dependabot's pip ecosystem), in their own venv so none of them ships.
+COPY .github/build-requirements.txt ./build-requirements.txt
+RUN python -m venv /opt/buildtools \
+ && /opt/buildtools/bin/pip install --no-cache-dir --require-hashes -r build-requirements.txt
+
+# Then the project itself: a wheel built without isolation by those tools, installed into
+# /opt/venv with --no-deps (the dependencies are already exactly the lock's). The runtime
+# stage takes /opt/venv and nothing from /src or /opt/buildtools.
+COPY README.md LICENSE ./
+COPY src ./src
+RUN /opt/buildtools/bin/python -m build --no-isolation --wheel --outdir /dist . \
+ && uv pip install --python /opt/venv/bin/python --no-deps /dist/*.whl
 
 FROM ${PYTHON_IMAGE} AS runtime
 
@@ -72,10 +83,10 @@ ENV LOKI_MCP_HOST=0.0.0.0 \
 
 COPY --from=build /opt/venv /opt/venv
 
-# Non-root, fixed uid/gid 1000 rather than a name lookup, so compose can say
-# `user: "1000:1000"` and mean this account.
-RUN groupadd --gid 1000 app && useradd --uid 1000 --gid 1000 --no-create-home app
-USER 1000:1000
+# Non-root, and not uid 1000: on a typical single-user host that is the operator's login
+# account, so a container escape would land with its files and groups (KB DC-15). 65534
+# (nobody/nogroup) owns nothing, exists in the base image, and is what grafana-mcp runs as.
+USER 65534:65534
 
 EXPOSE 8511
 
@@ -86,9 +97,9 @@ EXPOSE 8511
 # Host 127.0.0.1, which FastMCP's Host guard always allows.
 #
 # python rather than wget/curl: slim ships neither.
+# Exec form (hadolint DL3025): no shell in the path. A failed urlopen raises, and python
+# exits 1 on an uncaught exception, which is what HEALTHCHECK reads as unhealthy.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD python -c "import os,sys,urllib.request; \
-sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('LOKI_MCP_PORT','8511')+'/health', timeout=4).status==200 else 1)" \
-  || exit 1
+  CMD ["python", "-c", "import os,sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('LOKI_MCP_PORT','8511')+'/health', timeout=4).status==200 else 1)"]
 
 CMD ["loki-mcp"]

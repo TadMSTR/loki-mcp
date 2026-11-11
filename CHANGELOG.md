@@ -20,7 +20,7 @@ An HTTP transport with a mandatory bearer token, a container image on GHCR, and 
   only and always allows the loopback names (fastmcp 4.1.8 source; see SECURITY.md).
 - **Container image** `ghcr.io/tadmstr/loki-mcp` (amd64, arm64), published by
   release.yml on a `v*` tag, with the digest appended to the release notes. Dependencies
-  come from `uv.lock` (`uv sync --frozen`), uid 1000, read-only-root compatible
+  come from `uv.lock` (`uv sync --frozen`) and the wheel is built by the hash-pinned build tools; uid 65534, read-only-root compatible
   (`LOG_FILE` baked empty), HEALTHCHECK on `/health`. No `LOKI_URL` and no token baked in.
   CI builds it and checks it refuses to start without a token and returns 401 on `/mcp`.
 - `deploy/docker-compose.loki-mcp.yml` (commented compose example), `ecosystem.config.js`

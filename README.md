@@ -216,7 +216,7 @@ pm2 start ecosystem.config.js
 ### Docker
 
 The image is `ghcr.io/tadmstr/loki-mcp:<version>` (amd64 and arm64). Each GitHub release
-lists its digest; pin tag and digest. It serves HTTP on 8511 as uid 1000, logs to stderr,
+lists its digest; pin tag and digest. It serves HTTP on 8511 as uid 65534 (nobody), logs to stderr,
 and runs with a read-only root filesystem.
 
 ```bash

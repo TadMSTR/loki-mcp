@@ -16,7 +16,7 @@ services:
     image: ghcr.io/tadmstr/loki-mcp:v0.3.0 # @sha256:<from the v0.3.0 release notes>
     container_name: loki-mcp
     restart: unless-stopped
-    user: "1000:1000"
+    user: "65534:65534" # the image's USER; not 1000, the usual operator uid (KB DC-15)
     read_only: true # logs go to stderr (LOG_FILE is baked empty); nothing is written
     cap_drop:
       - ALL
@@ -49,6 +49,12 @@ services:
       # allows 127.0.0.1, localhost and ::1.
       - LOKI_MCP_ALLOWED_HOSTS=localhost:8511,127.0.0.1:8511,[::1]:8511
       # MANDATORY, at least 16 characters; the process refuses to start without it.
+      #
+      # Residual to weigh at deploy (KB NE-20): clients send this token to the loopback
+      # publish. With Docker's userland proxy the port is free while the container is
+      # stopped or restarting, and any local uid could bind it and collect the token from
+      # the next client call. Either accept that window explicitly, or have clients reach
+      # a path a host process can't bind.
       # Set LOKI_MCP_TOKEN in ~/docker/observability/.env (mode 600), and the same value
       # in each consuming agent's .env for its manifest's headers:.
       # Generate: python3 -c "import secrets; print(secrets.token_hex(32))"

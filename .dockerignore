@@ -23,7 +23,9 @@ pylock.*.toml
 
 # Not needed at build or runtime.
 tests/
-.github/
+# .github/ is excluded except the hashed build-tool pins the build stage installs.
+.github/*
+!.github/build-requirements.txt
 .git/
 .gitignore
 ecosystem.config.js
