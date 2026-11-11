@@ -528,6 +528,11 @@ _TOOLS = {
     "get_stats",
     "get_detected_fields",
     "tail_recent",
+    "get_health",
+    "get_detected_labels",
+    "get_patterns",
+    "count_matches",
+    "compare_windows",
 }
 
 

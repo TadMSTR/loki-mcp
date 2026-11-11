@@ -205,8 +205,20 @@ class _BodyTooLarge(Exception):
     pass
 
 
+PATTERNS_PATH = "/loki/api/v1/patterns"
+
+
 def _loki_error(status: int, body: str, path: str, org: str | None) -> ToolError:
     body = body.strip()
+    if status == 404 and path == PATTERNS_PATH:
+        # Measured on Loki 3.7.8 (2026-11-11): with the pattern ingester off, the route is
+        # not registered and Loki answers 404 with an empty body, which says nothing.
+        return ToolError(
+            "Loki has no pattern data: its pattern ingester is off (404 on "
+            f"{PATTERNS_PATH}). Enable it with `pattern_ingester: {{enabled: true}}` in the "
+            "Loki config (pattern_ingester.enabled). Patterns cover only lines ingested "
+            "after it is enabled."
+        )
     if status == 401 and "no org id" in body:
         return ToolError(
             "Loki refused the request with 401 'no org id': it runs with auth_enabled and "
@@ -242,11 +254,13 @@ async def _read_capped(resp: httpx.Response, limit: int) -> bytes:
     return b"".join(chunks)
 
 
-async def loki_get(path: str, params: dict[str, str], org: str | None) -> Any:
-    """GET ``path`` from Loki and return the parsed JSON.
+async def loki_get(
+    path: str, params: dict[str, str], org: str | None, *, text: bool = False
+) -> Any:
+    """GET ``path`` from Loki and return the parsed JSON, or the body as text if ``text``.
 
     ``org`` is the X-Scope-OrgID value already returned by ``resolve_tenant``; None
-    sends no header.
+    sends no header. ``text`` is for ``/ready``, whose body is the bare word ``ready``.
     """
     cfg = config()
     headers = {"X-Scope-OrgID": org} if org else {}
@@ -293,6 +307,8 @@ async def loki_get(path: str, params: dict[str, str], org: str | None) -> Any:
                 span.set_attribute("http.status_code", status)
             if status != 200:
                 raise _loki_error(status, raw.decode("utf-8", "replace"), path, org)
+            if text:
+                return raw.decode("utf-8", "replace")
             try:
                 return json.loads(raw)
             except ValueError:
