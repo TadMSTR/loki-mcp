@@ -191,6 +191,11 @@ def _envelope(key: str, items: list[Any], tenant: str | None) -> dict[str, Any]:
     if kept and _json_size(kept[0]) > budget:
         kept[0], dropped = _shrink_values(kept[0], budget)
         if dropped:
+            # get_patterns may already have left samples unbuilt (samples_omitted): count
+            # them too, so the note and the row give the same, whole number.
+            if "samples_omitted" in kept[0]:
+                dropped += kept[0]["samples_omitted"]
+                kept[0]["samples_omitted"] = dropped
             total = dropped + len(kept[0][_point_key(kept[0])])
             notes.append(f"{dropped} of {total} points of the first item omitted")
         if _json_size(kept[0]) > budget:

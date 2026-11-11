@@ -262,6 +262,20 @@ async def test_get_patterns_samples_across_many_patterns_are_bounded(env, monkey
 
 
 @respx.mock
+async def test_get_patterns_note_counts_samples_never_built(env) -> None:
+    # The note and the row agree on the whole number dropped: the samples the budget cut
+    # plus the ones _expand_samples never built.
+    env(LOKI_MAX_RESPONSE_CHARS="2000")
+    samples = [[1794415200 + 60 * i, 1] for i in range(50_000)]
+    respx.get(PATTERNS).mock(return_value=Response(200, json=_patterns(("p <_>", samples))))
+    out = await get_patterns('{job="docker"}', step="1m")
+    row = out["patterns"][0]
+    kept = len(row["samples"])
+    assert row["samples_omitted"] == 50_000 - kept
+    assert f"{50_000 - kept} of 50000 points of the first item omitted" in out["note"]
+
+
+@respx.mock
 async def test_get_patterns_first_item_samples_are_trimmed_and_noted(env) -> None:
     # The first row is always kept, so its samples are what _shrink_values must cut.
     env(LOKI_MAX_RESPONSE_CHARS="600")
