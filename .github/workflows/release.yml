@@ -112,9 +112,12 @@ jobs:
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         # The released bytes are built inside a packages:write job, so the tooling that
         # builds them is pinned too: buildx by version, BuildKit by digest. The Dockerfile
-        # pins its own frontend on its first line.
+        # pins its own frontend on its first line. cache-binary: false, because a pinned
+        # version is downloaded and would otherwise be cached in the Actions cache, which a
+        # lower-privileged workflow can write: a poisoned buildx in this job builds the image.
         with:
           version: v0.38.2
+          cache-binary: false
           driver-opts: image=moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
 
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
