@@ -22,16 +22,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python ${{ matrix.python-version }}
         id: py
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python-version }}
           allow-prereleases: true
 
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       # FROM THE LOCK. `--frozen` installs exactly uv.lock and fails rather than re-resolve,
       # so a green run is evidence about the set this project pins, not about whatever a
@@ -55,8 +57,8 @@ jobs:
   # MULTI-TENANT BEHAVIOUR AGAINST A REAL LOKI.
   #
   # The test job's live tests SKIP (no Loki), and a skip is not a pass. This job is what
-  # runs them: grafana/loki 3.7.6 pinned by digest, with auth_enabled and
-  # multi_tenant_queries_enabled. It is what proves, on every change, that a header-less
+  # runs them: grafana/loki 3.7.8 pinned by digest, with auth_enabled,
+  # multi_tenant_queries_enabled and the pattern ingester. It is what proves, on every change, that a header-less
   # call names LOKI_ORG_ID, that `main|fake` reads both tenants with __tenant_id__, that
   # every endpoint loki-mcp calls still accepts a multi-tenant header, and that Loki would
   # serve `main:x` as `main` (the reason the client rejects colons).
@@ -66,26 +68,28 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         id: py
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Install dependencies (locked)
         env:
           UV_PYTHON: ${{ steps.py.outputs.python-path }}
         run: uv sync --frozen --extra dev
 
-      - name: Start Loki 3.7.6 (multi-tenant)
+      - name: Start Loki 3.7.8 (multi-tenant, pattern ingester on)
         run: |
           docker run -d --name loki -p 127.0.0.1:3100:3100 \
             -v "$PWD/tests/loki-live-config.yaml:/etc/loki/config.yaml:ro" \
-            grafana/loki:3.7.6@sha256:efd47c67f9bac88ca29bcf8cb997d9ab29d1848bd0aff579282295542a745952 \
+            grafana/loki:3.7.8@sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193 \
             -config.file=/etc/loki/config.yaml
           # /ready answers 503 for ~15 s after start; --retry-all-errors covers that.
           curl -sSf --retry 30 --retry-delay 2 --retry-all-errors http://127.0.0.1:3100/ready
@@ -104,7 +108,7 @@ jobs:
           s = ET.parse("live.xml").getroot().find("testsuite")
           ran = int(s.get("tests")) - int(s.get("skipped"))
           print(f"live tests run: {ran}, skipped: {s.get('skipped')}")
-          assert ran >= 15 and s.get("skipped") == "0", "live tests did not all run"
+          assert ran >= 32 and s.get("skipped") == "0", "live tests did not all run"
           EOF
 
       - name: Loki log on failure
@@ -115,7 +119,7 @@ jobs:
   #
   # `pip-audit --strict .` on a project without a lock re-resolves the declared ranges
   # and reports on what a fresh install would get today, not on what this project pins
-  # (vikunja#633: an audit read undici 7.29.0 green while the deployed tree ran 7.28.0
+  # (an audit once read undici 7.29.0 green while the deployed tree ran 7.28.0
   # with four HIGH advisories).
   audit:
     name: Dependency audit
@@ -123,14 +127,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       # A committed lock nobody checks is a stale file that looks like a pin. This fails
       # when pyproject.toml changed and uv.lock did not.
@@ -175,9 +181,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
 
@@ -196,6 +204,60 @@ jobs:
           python -c "import loki_mcp, loki_mcp.server; print('import ok', loki_mcp.__version__)"
           command -v loki-mcp
 
+  # THE IMAGE, BUILT AND RUN THE WAY p2 WILL RUN IT.
+  #
+  # release.yml pushes this Dockerfile to GHCR on a tag; this job proves on every change
+  # that it builds and that the fail-closed startup holds in the image, not only in the
+  # Python tests: read-only root, no token -> non-zero exit; with a token, /health 200
+  # unauthenticated and /mcp 401 without a bearer.
+  image:
+    name: Image smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        run: docker build -t loki-mcp:ci .
+
+      - name: No token -> refuses to start
+        run: |
+          set +e
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+            -e LOKI_MCP_PORT=8511 loki-mcp:ci
+          code=$?
+          echo "exit code: $code"
+          test "$code" -ne 0
+
+      - name: With token -> /health 200, /mcp 401 without bearer
+        # Throwaway values, in env rather than inline: a literal `Authorization: Bearer`
+        # in a curl line is what gitleaks' curl-auth-header rule flags.
+        env:
+          SMOKE_TOKEN: ci-token-0123456789abcdef
+          WRONG_TOKEN: wrong-token-0123456789
+        run: |
+          docker run -d --name lm --read-only --cap-drop ALL \
+            --security-opt no-new-privileges -p 127.0.0.1:8511:8511 \
+            -e LOKI_MCP_PORT=8511 -e LOKI_MCP_API_TOKEN="$SMOKE_TOKEN" \
+            -e LOKI_URL=http://loki.invalid:3100 loki-mcp:ci
+          curl -sS --retry 15 --retry-delay 1 --retry-all-errors -o /dev/null http://127.0.0.1:8511/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8511/health)" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8511/mcp)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $WRONG_TOKEN" http://127.0.0.1:8511/mcp)" = 401
+          test "$(docker inspect -f '{{.Config.User}}' lm)" = "65534:65534"
+          for _ in $(seq 1 30); do
+            s=$(docker inspect -f '{{.State.Health.Status}}' lm)
+            [ "$s" = healthy ] && break; sleep 2
+          done
+          echo "health: $s"; test "$s" = healthy
+
+      - name: Container log on failure
+        if: failure()
+        run: docker logs lm || true
+
   # Pins move as matched sets (codeql-action's init/analyze/upload-sarif). Dependabot's
   # group stops it splitting them; this stops a hand edit doing it. Stdlib-only, and the
   # checker proves it can fail before it reports the tree clean.
@@ -205,6 +267,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Check action pins
         run: python3 tests/check_action_pins.py

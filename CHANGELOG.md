@@ -2,6 +2,73 @@
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-11-11
+
+An HTTP transport with a mandatory bearer token, a container image on GHCR, and five tools.
+**Nothing changes for stdio users:** with `LOKI_MCP_PORT` unset the server runs exactly as
+0.2.0 did, and no existing tool's arguments or output changed.
+
+### Added
+- **HTTP transport.** `LOKI_MCP_PORT` serves streamable-http on `/mcp`. It fails closed:
+  `LOKI_MCP_API_TOKEN` (at least 16 characters, constant-time compare, `Bearer` scheme
+  case-insensitive) is required; `LOKI_MCP_HOST` defaults to `127.0.0.1` and a
+  non-loopback bind needs `LOKI_MCP_ALLOW_NONLOOPBACK=1`; every bad value exits 2 at
+  startup with the variable named. `/health` is the only unauthenticated path (exact
+  match), returns `{"status":"ok"}` and never calls Loki. FastMCP's Host/Origin guard is on
+  (`LOKI_MCP_ALLOWED_HOSTS`, default `localhost:8511,127.0.0.1:8511,[::1]:8511`, no
+  wildcards): 421 for a foreign `Host`, 403 for a foreign `Origin`. It compares hostnames
+  only and always allows the loopback names (fastmcp 4.1.8 source; see SECURITY.md).
+- **Container image** `ghcr.io/tadmstr/loki-mcp` (amd64, arm64), published by
+  release.yml on a `v*` tag, with the digest appended to the release notes. Dependencies
+  come from `uv.lock` (`uv sync --frozen`) and the wheel is built by the hash-pinned build tools; uid 65534, read-only-root compatible
+  (`LOG_FILE` baked empty), HEALTHCHECK on `/health`. No `LOKI_URL` and no token baked in.
+  CI builds it and checks it refuses to start without a token and returns 401 on `/mcp`.
+- `deploy/docker-compose.loki-mcp.yml` (commented compose example), `ecosystem.config.js`
+  (PM2 example), and a README "Running it" section covering stdio, HTTP, PM2 and Docker,
+  with a "which should I pick?" (#493 Finding 3).
+- **`count_matches`**: matching-line counts per `by` group, and **never line text**. The
+  query is built from a bare stream selector, a chain of line filters (`|=`, `!=`, `|~`,
+  `!~`) and label names, each checked by a full-match grammar; parser and formatting stages
+  are refused. Measured on Loki 3.7.8: `| regexp "(?P<x>.*)"` grouped `by (x)` returns whole
+  log lines as label values, and `label_format`, `logfmt` and `pattern` leak the same way.
+  A live test keeps that measurement current and checks the tool refuses it.
+- **`compare_windows`**: per-group `before`, `after`, `delta` and `ratio` between
+  `[window_a, window_b)` and `[window_b, now)`, through the same builder. Argument names
+  follow signoz-mcp's `compare_windows`.
+- **`get_patterns`**: Loki's detected line patterns, most frequent first, with `samples`
+  when `step` is given. Pattern text is cut at `LOKI_MAX_LINE_CHARS`. With the pattern
+  ingester off (Loki answers 404 with an empty body) the error names
+  `pattern_ingester.enabled`.
+- **`get_detected_labels`** (`/detected_labels`, present on 3.7.8): label names with
+  cardinality.
+- **`get_health`**: `/ready` and buildinfo. An unreachable or not-ready Loki is
+  `ready: false` with the reason, not an error.
+- README table mapping grafana-mcp's five Loki tools to their loki-mcp equivalents.
+- Dependabot `docker` ecosystem for the Dockerfile's base-image digests.
+
+### Changed
+- CI's live Loki is 3.7.8 (pinned by digest) with the pattern ingester on; the
+  live-test floor rises from 15 to 32.
+- Dependencies: fastmcp 4.1.8, pydantic 2.14.3, opentelemetry 1.45.2, ruff 0.17.3,
+  pytest 9.2.0, setuptools 84.2.1 (build), and the four Actions bumps Dependabot had open.
+  The build-tools file is regenerated with `uv pip compile`: Dependabot's version dropped
+  setuptools from the hashed set, which `--require-hashes` with `--no-isolation` needs.
+- Measured on Loki 3.7.8: `/ready` and buildinfo ignore `X-Scope-OrgID`; `detected_labels`
+  and `patterns` accept a multi-tenant header and refuse none (401 `no org id`).
+
+### Security
+- `get_patterns` no longer builds every sample before `limit` applies: at most as many
+  samples as the response budget can hold are built, a pattern that lost some carries
+  `samples_omitted`, and the budget cut trims a pattern's `samples` as it does a series'
+  `values`. A short `step` over a long window was otherwise bounded only by the 32 MiB body
+  cap, and one pattern's samples could pass the response budget whole.
+- The release build pins the Dockerfile frontend and BuildKit by digest and buildx by
+  version.
+- Docs: `docker run` passes the token by name rather than on the command line; the PM2
+  example keeps the token out of the interactive shell and the PM2 daemon; copy-paste image
+  references carry a digest placeholder; the Host guard is documented as hostname-only;
+  install instructions use the lock.
+
 ## [0.2.0] — 2026-10-08
 
 Multi-tenant Loki support, four new tools, FastMCP 4, the fleet repo standard, and a
@@ -202,5 +269,5 @@ Initial release.
 - `get_streams` — list active log streams matching a selector
 - `tail_recent` — convenience wrapper for most recent N log lines
 - `_parse_time()` — relative duration, ISO 8601, and "now" time expression parsing
-- PM2 ecosystem config for forge deployment
+- PM2 ecosystem config
 - 80%+ test coverage via `respx`-mocked Loki HTTP responses

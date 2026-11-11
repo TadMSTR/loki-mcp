@@ -1,0 +1,40 @@
+# .dockerignore does not inherit .gitignore: every entry here is deliberate.
+# The build context needs only pyproject.toml, uv.lock, README.md, LICENSE and src/.
+
+# Rebuilt inside the image; a host copy would shadow it with the wrong architecture or a
+# stale tree.
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+
+# Caches and local test state.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.audit-runtime/
+.audit-dev/
+pylock.*.toml
+
+# Not needed at build or runtime.
+tests/
+# .github/ is excluded except the hashed build-tool pins the build stage installs.
+.github/*
+!.github/build-requirements.txt
+.git/
+.gitignore
+ecosystem.config.js
+deploy/
+Dockerfile
+.dockerignore
+
+# Never bake a secret or local state into an image layer.
+.env
+*.env
+*.key
+*.pem

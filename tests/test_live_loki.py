@@ -1,11 +1,11 @@
 """Live tests against a real multi-tenant Loki (auth_enabled + multi_tenant_queries_enabled).
 
-Skipped unless LOKI_LIVE_URL is set. CI's `live-loki` job starts grafana/loki:3.7.6 with
+Skipped unless LOKI_LIVE_URL is set. CI's `live-loki` job starts grafana/loki:3.7.8 with
 tests/loki-live-config.yaml and sets it. Locally:
 
     docker run -d --rm --name loki-live -p 127.0.0.1:3199:3100 \
       -v "$PWD/tests/loki-live-config.yaml:/etc/loki/config.yaml:ro" \
-      grafana/loki:3.7.6 -config.file=/etc/loki/config.yaml
+      grafana/loki:3.7.8 -config.file=/etc/loki/config.yaml
     LOKI_LIVE_URL=http://127.0.0.1:3199 pytest -m live
 
 Mocks cannot answer the questions these answer: which endpoints accept `a|b`, what Loki
@@ -245,3 +245,84 @@ async def test_get_streams_forged_tenant_label_under_a_multi_tenant_header(live)
     for s in out["streams"]:
         assert s["__tenant_id__"] == "edge", s
     assert any(s.get("original___tenant_id__") == "main" for s in out["streams"])
+
+
+# ── v0.3.0 tools ──────────────────────────────────────────────────────────────
+
+
+async def test_count_matches_negative_control_regexp_leaks_line_text(live) -> None:
+    # Why count_matches validates: the query its builder would produce from an
+    # unvalidated `| regexp` filter, grouped by the capture, returns whole log lines as
+    # label values (measured on 3.7.8, 2026-11-11). The defect is real; then the tool
+    # refuses the same input before any request.
+    leak = f'sum by (x) (count_over_time({SEL} |= "main" | regexp "(?P<x>.*)" [1h]))'
+    r = httpx.get(
+        f"{LIVE}/loki/api/v1/query",
+        headers={"X-Scope-OrgID": "main"},
+        params={"query": leak},
+        timeout=10,
+    )
+    values = {s["metric"].get("x") for s in r.json()["data"]["result"]}
+    assert f"{MARK} main 0" in values, values  # line text came back as a label
+
+    live(LOKI_ORG_ID="main")
+    with pytest.raises(ToolError, match="only line filters"):
+        await server.count_matches(SEL, line_filter='|= "main" | regexp "(?P<x>.*)"', by="x")
+    with pytest.raises(ToolError, match="stream selector"):
+        await server.count_matches(f'{SEL} |= "main" | regexp "(?P<x>.*)"', by="x")
+
+
+@pytest.mark.parametrize("org", ["main", "main|fake"])
+async def test_count_matches_counts_without_line_text(live, org) -> None:
+    live(LOKI_ORG_ID=org)
+    out = await server.count_matches(SEL, line_filter=f'|= "{MARK}"', start="-1h", by="job")
+    counts = {g["labels"]["job"]: g["count"] for g in out["groups"]}
+    assert counts == ({"docker": 3} if org == "main" else {"docker": 3, "scoped-mcp": 2})
+    assert MARK not in str(out["groups"])
+    assert out["tenant"] == org
+
+
+async def test_compare_windows_sees_the_push_in_the_recent_window(live) -> None:
+    live(LOKI_ORG_ID="main|fake")
+    out = await server.compare_windows(SEL, window_a="-2h", window_b="-1h", by="job")
+    rows = {g["labels"]["job"]: g for g in out["groups"]}
+    assert rows["docker"]["before"] == 0 and rows["docker"]["after"] == 3
+    assert rows["docker"]["ratio"] is None
+
+
+@pytest.mark.parametrize("org", ["main", "main|fake"])
+async def test_get_detected_labels(live, org) -> None:
+    live(LOKI_ORG_ID=org)
+    out = await server.get_detected_labels(SEL)
+    labels = {r["label"] for r in out["labels"]}
+    assert {"job", "run"} <= labels, out
+
+
+@pytest.mark.parametrize("org", ["main", "main|fake"])
+async def test_get_health(live, org) -> None:
+    live(LOKI_ORG_ID=org)
+    out = await server.get_health()
+    assert out["ready"] is True and out["reason"] is None
+    assert out["version"].startswith("3.") and out["tenant"] == org
+
+
+@pytest.mark.parametrize("org", ["main", "main|fake"])
+async def test_get_patterns_after_a_push(live, org) -> None:
+    # The pattern ingester (tests/loki-live-config.yaml) shows patterns about 10 s after
+    # ingest (measured, 3.7.8). Push a templated batch, then wait, bounded.
+    tag = f"{MARK}-pat"
+    _push(
+        "main", {"job": "patterns", "run": tag}, [f"user=u{i} action=login ok" for i in range(30)]
+    )
+    live(LOKI_ORG_ID=org)
+    deadline = time.monotonic() + 60
+    while True:
+        out = await server.get_patterns(f'{{run="{tag}"}}', start="-10m", step="1m")
+        if out["patterns"]:
+            break
+        if time.monotonic() > deadline:
+            pytest.fail("no patterns 60 s after the push")
+        time.sleep(2)
+    top = out["patterns"][0]
+    assert "action=login" in top["pattern"] and top["total"] >= 1
+    assert top["samples"] and out["tenant"] == org

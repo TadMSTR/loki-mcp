@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loki-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "FastMCP server for Loki LogQL queries — read-only access to log streams, with multi-tenant support"
 readme = "README.md"
 license = "MIT"
@@ -58,7 +58,7 @@ dev = [
     # Pinned exactly: an unpinned formatter is a gate whose result depends on when it ran
     # (signoz-mcp measured local 0.15.22 vs CI 0.16.8 and a red `ruff format --check` on
     # code that had just been formatted). Bumps arrive through Dependabot's dev-tools PR.
-    "ruff==0.16.10",
+    "ruff==0.17.3",
 ]
 
 [project.scripts]
@@ -72,7 +72,7 @@ include = ["loki_mcp*"]
 asyncio_mode = "auto"
 markers = [
     # tests/test_live_loki.py: a real multi-tenant Loki. Skipped unless LOKI_LIVE_URL is
-    # set; CI's live-loki job starts grafana/loki:3.7.6 and sets it. A SKIP is not a PASS.
+    # set; CI's live-loki job starts grafana/loki:3.7.8 and sets it. A SKIP is not a PASS.
     "live: requires a reachable multi-tenant Loki; opt in with LOKI_LIVE_URL",
 ]
 
@@ -94,6 +94,7 @@ omit = ["src/loki_mcp/__main__.py"]
 #
 # Measured 2026-10-08 for v0.2.0: 99.80%
 # (504 statements, 1 missed: the `if __name__ == "__main__"` guard). Raised 80 -> 99.
+# Measured 2026-11-11 for v0.3.0: 99.86% (730 statements, the same 1 missed). Kept at 99.
 # The 80 it replaces sat twenty points below reality, so it would have let a twenty-point
 # regression through green (vikunja#680: searxng-mcp's floor sat twelve points under for
 # ten releases). Live tests (-m live) are not in this number; they skip without Loki.

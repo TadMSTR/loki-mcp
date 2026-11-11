@@ -30,5 +30,8 @@ schema_config:
       index:
         prefix: index_
         period: 24h
+# get_patterns' live tests. This one line is the whole addition for a single-binary Loki
+# whose common.ring.kvstore is inmemory: the pattern ingester's ring inherits it
+# (measured on 3.7.8, 2026-11-11; /config shows store: inmemory, no consul).
 pattern_ingester:
-  enabled: false
+  enabled: true

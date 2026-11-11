@@ -1,0 +1,85 @@
+# loki-mcp: compose service fragment for a stack that already runs Loki.
+#
+# THIS IS NOT A RUNNABLE STACK. It is the service block to adapt into the compose file
+# next to your `loki` service. Adapt LOKI_URL, the tenants, the network and the published
+# port; everything else carries over.
+#
+# Verified against Loki 3.7.8 before this file was written: the image was run with
+# read_only, cap_drop ALL and no-new-privileges, healthy, 15 tools over the bearer, and
+# count_matches answered from a scratch Loki on a shared network.
+
+services:
+  loki-mcp:
+    # Pin tag AND digest. The digest is printed in the GitHub release notes for the tag;
+    # :latest also exists and must not be what a deploy pulls. The placeholder below does
+    # not parse until you replace it, so a verbatim paste fails instead of pulling a tag.
+    image: ghcr.io/tadmstr/loki-mcp:v0.3.0@sha256:<digest-from-the-v0.3.0-release-notes>
+    container_name: loki-mcp
+    restart: unless-stopped
+    user: "65534:65534" # the image's USER; not 1000, the usual operator uid
+    read_only: true # logs go to stderr (LOG_FILE is baked empty); nothing is written
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Measured: 72 MiB idle. Revisit after a week of real calls.
+    mem_limit: 256m
+    cpus: "0.5"
+    ports:
+      # Loopback only. THIS is the exposure control, not the bind address inside the
+      # container (the image binds 0.0.0.0 on purpose). Clients reach it as
+      # localhost:8511. The Host/Origin guard compares hostnames only (see SECURITY.md),
+      # so publishing another port needs no change; reaching it under another hostname
+      # does, or every call gets 421 Misdirected Request.
+      - "127.0.0.1:8511:8511"
+    environment:
+      # Container-to-container by service name. NOT localhost:3100: that is this
+      # container's own loopback. Pointed there it still starts, still reports HEALTHY,
+      # and every tool fails.
+      - LOKI_URL=http://loki:3100
+      # Multi-tenant Loki (auth_enabled: true) answers a header-less call with 401
+      # "no org id". Set the default tenant and the ones `tenant` may name; omit both for
+      # a single-tenant Loki.
+      - LOKI_ORG_ID=main
+      - LOKI_TENANTS=main,edge
+      # Baked into the image too; repeated so the widened bind is visible here.
+      - LOKI_MCP_HOST=0.0.0.0
+      - LOKI_MCP_ALLOW_NONLOOPBACK=1
+      - LOKI_MCP_PORT=8511
+      # The Host values agents send through the publish above. No wildcard: `*` would
+      # turn the DNS-rebinding check off. FastMCP compares the hostname only and always
+      # allows 127.0.0.1, localhost and ::1, plus the address the server is bound to.
+      - LOKI_MCP_ALLOWED_HOSTS=localhost:8511,127.0.0.1:8511,[::1]:8511
+      # MANDATORY, at least 16 characters; the process refuses to start without it.
+      #
+      # Residual to weigh at deploy: clients send this token to the loopback publish.
+      # While the container is stopped or restarting the port is free, and another local
+      # user could bind it and receive the token from the next client call. Either accept
+      # that window explicitly, or have clients reach a path a host process can't bind.
+      #
+      # Set LOKI_MCP_TOKEN in the stack's .env (mode 600). The server accepts one token,
+      # so every client shares it: one compromised client exposes it for all of them, and
+      # rotating it means updating every client.
+      # Generate: python3 -c "import secrets; print(secrets.token_hex(32))"
+      - LOKI_MCP_API_TOKEN=${LOKI_MCP_TOKEN}
+      - LOG_LEVEL=INFO
+      # OTEL is off by default. Set the endpoint only if the collector is reachable from
+      # this service's network; otherwise the exporter fails quietly. Attaching a wider
+      # shared network to reach it makes the bearer the only control between that
+      # network and this tool surface. gRPC 4317, by name:
+      # - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    depends_on:
+      - loki
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+    # The network `loki` is on. Host-process clients use the loopback publish instead.
+    networks:
+      - monitoring
+
+# For reference only: the target stack already declares it. Take the service block.
+networks:
+  monitoring:
+    external: true

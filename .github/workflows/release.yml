@@ -5,7 +5,8 @@ on:
     tags:
       - "v*"
 
-# Read at the top; write only on the job that creates the release (F6).
+# Read at the top; write only on the jobs that need it (F6): contents:write to create and
+# annotate the release, packages:write only on the image push.
 permissions:
   contents: read
 
@@ -16,9 +17,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
 
@@ -83,3 +86,145 @@ jobs:
               --generate-notes \
               --verify-tag
           fi
+
+  # The container image p2 deploys (ghcr.io/tadmstr/loki-mcp, public; Ted 2026-11-11).
+  # Its own job so packages:write sits only here, and after `build` so a tag that fails
+  # the version check publishes nothing.
+  publish-image:
+    name: Publish image to GHCR
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read # checkout
+      packages: write # push to ghcr.io
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # arm64 is emulated on the amd64 runner. Every compiled dependency in the lock
+      # publishes an aarch64 manylinux wheel, so this is a copy, not a compile. If it turns
+      # slow or flaky, drop linux/arm64 rather than carry the flakiness into a release.
+      # The emulator runs every arm64 build step of the published image, so its image is
+      # pinned by digest, only arm64 is registered, and it is not cached: this job reads
+      # and writes no Actions cache at all (see the build steps below).
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          image: docker.io/tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+          platforms: arm64
+          cache-image: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        # The released bytes are built inside a packages:write job, so the tooling that
+        # builds them is pinned too: buildx by version, BuildKit by digest. The Dockerfile
+        # pins its own frontend on its first line. cache-binary: false, because a pinned
+        # version is downloaded and would otherwise be cached in the Actions cache, which a
+        # lower-privileged workflow can write: a poisoned buildx in this job builds the image.
+        with:
+          version: v0.38.2
+          cache-binary: false
+          driver-opts: image=moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # SECURITY[deferred]: the push is a second build; nothing compares its amd64 digest
+      # with the verified image. Ticket vikunja#1489. Target: next minor. Audit: 2026-11-11.
+      # The released bytes are checked before anything is pushed: build the
+      # amd64 image locally, run the same fail-closed checks as ci.yml's image job, and only
+      # then push. The amd64 layers of the push come from the builder's local cache (the same
+      # docker-container builder, in this job). No `type=gha` cache: a cache entry written
+      # by another workflow on the default branch would otherwise feed layers into the
+      # published image. arm64 is built
+      # from the same Dockerfile and lock but is NOT run here (no arm64 runner); the release
+      # notes say so.
+      - name: Build amd64 for verification
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          push: false
+          platforms: linux/amd64
+          tags: loki-mcp:verify
+
+      - name: Smoke-test the release image
+        env:
+          SMOKE_TOKEN: release-smoke-0123456789abcdef
+        run: |
+          set -u
+          if docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+              -e LOKI_MCP_PORT=8511 loki-mcp:verify; then
+            echo "started without a token"; exit 1
+          fi
+          docker run -d --name lm --read-only --cap-drop ALL \
+            --security-opt no-new-privileges -p 127.0.0.1:8511:8511 \
+            -e LOKI_MCP_PORT=8511 -e LOKI_MCP_API_TOKEN="$SMOKE_TOKEN" \
+            -e LOKI_URL=http://loki.invalid:3100 loki-mcp:verify
+          curl -sS --retry 15 --retry-delay 1 --retry-all-errors -o /dev/null http://127.0.0.1:8511/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8511/mcp)" = 401
+          test "$(docker inspect -f '{{.Config.User}}' lm)" = "65534:65534"
+          docker rm -f lm
+
+      # `:latest` moves only for a stable vX.Y.Z tag. The build job already
+      # requires the tag to equal "v" + the package version, so a PEP 440 prerelease such as
+      # v0.4.0rc1 gets its own tag and leaves :latest alone. Lowercased owner, hardcoded:
+      # GHCR refuses an uppercase path and the owner is `TadMSTR`.
+      - name: Image tags
+        id: tags
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          {
+            echo "list<<EOF"
+            echo "ghcr.io/tadmstr/loki-mcp:${TAG_NAME}"
+            if [[ "${TAG_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "ghcr.io/tadmstr/loki-mcp:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          provenance: mode=max
+          tags: ${{ steps.tags.outputs.list }}
+
+  # p2 pins tag + digest, and reads the digest from here rather than from whatever
+  # `:latest` points at on the day it deploys.
+  image-digest-in-release-notes:
+    name: Record the image digest in the release
+    runs-on: ubuntu-latest
+    needs: [create-github-release, publish-image]
+    permissions:
+      contents: write # gh release edit
+    steps:
+      - name: Append digest to release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
+          DIGEST: ${{ needs.publish-image.outputs.digest }}
+        run: |
+          test -n "${DIGEST}"
+          gh release view "${TAG_NAME}" --json body -q .body > notes.md
+          {
+            echo
+            echo "## Container image"
+            echo
+            echo '```'
+            echo "ghcr.io/tadmstr/loki-mcp:${TAG_NAME}@${DIGEST}"
+            echo '```'
+            echo
+            echo "linux/amd64 was run and smoke-tested before the push; linux/arm64 was built"
+            echo "from the same Dockerfile and lock but not run."
+          } >> notes.md
+          gh release edit "${TAG_NAME}" --notes-file notes.md
