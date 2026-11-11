@@ -921,7 +921,7 @@ async def get_patterns(
         )
         total = 0
         for _, count in samples:
-            with contextlib.suppress(TypeError, ValueError):
+            with contextlib.suppress(OverflowError, TypeError, ValueError):
                 total += int(count)
         row: dict[str, Any] = {"pattern": p["pattern"], "level": p.get("level"), "total": total}
         if len(row["pattern"]) > max_line:

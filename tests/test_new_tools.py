@@ -285,6 +285,32 @@ async def test_get_patterns_non_numeric_sample_ts_does_not_abort_the_call() -> N
 
 
 @respx.mock
+async def test_get_patterns_bad_sample_items_never_abort_either_loop() -> None:
+    # OV-33 probe over both per-sample loops (total, and the sample rows): every bad
+    # shape a sample can take is skipped or relayed, and the good ones still count.
+    samples = [
+        [1794415200, float("inf")],  # sent as Infinity; int() raises OverflowError
+        [1794415200, float("nan")],
+        [1794415200, None],
+        [1794415200, "x"],
+        [1794415200, [1]],
+        [[1], 2],
+        [{"k": "v"}, 3],
+        [None, 4],
+        [1794415200, 5],
+    ]
+    # Raw body: httpx's json= refuses non-finite floats, but a server can send them.
+    body = json.dumps(_patterns(("p <_>", samples)), allow_nan=True)
+    respx.get(PATTERNS).mock(
+        return_value=Response(200, content=body, headers={"content-type": "application/json"})
+    )
+    out = await get_patterns('{job="docker"}', step="1m")
+    row = out["patterns"][0]
+    assert row["total"] == 2 + 3 + 4 + 5
+    assert len(row["samples"]) == len(samples)
+
+
+@respx.mock
 async def test_get_patterns_without_step_builds_no_samples(monkeypatch) -> None:
     samples = [[1794415200 + 60 * i, 1] for i in range(10_000)]
     respx.get(PATTERNS).mock(return_value=Response(200, json=_patterns(("p <_>", samples))))
