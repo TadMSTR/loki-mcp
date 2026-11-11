@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## [0.3.0] — unreleased (date set at release)
+## [0.3.0] — 2026-11-11
 
 An HTTP transport with a mandatory bearer token, a container image on GHCR, and five tools.
 **Nothing changes for stdio users:** with `LOKI_MCP_PORT` unset the server runs exactly as
@@ -55,6 +55,19 @@ An HTTP transport with a mandatory bearer token, a container image on GHCR, and 
   setuptools from the hashed set, which `--require-hashes` with `--no-isolation` needs.
 - Measured on Loki 3.7.8: `/ready` and buildinfo ignore `X-Scope-OrgID`; `detected_labels`
   and `patterns` accept a multi-tenant header and refuse none (401 `no org id`).
+
+### Security
+- `get_patterns` no longer builds every sample before `limit` applies: at most as many
+  samples as the response budget can hold are built, a pattern that lost some carries
+  `samples_omitted`, and the budget cut trims a pattern's `samples` as it does a series'
+  `values`. A short `step` over a long window was otherwise bounded only by the 32 MiB body
+  cap, and one pattern's samples could pass the response budget whole.
+- The release build pins the Dockerfile frontend and BuildKit by digest and buildx by
+  version.
+- Docs: `docker run` passes the token by name rather than on the command line; the PM2
+  example keeps the token out of the interactive shell and the PM2 daemon; copy-paste image
+  references carry a digest placeholder; the Host guard is documented as hostname-only;
+  install instructions use the lock.
 
 ## [0.2.0] — 2026-10-08
 
