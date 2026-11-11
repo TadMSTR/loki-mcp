@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.28.0@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
 
 # python:3.13-slim, pinned by multi-arch index digest rather than by tag: the tag moves.
 # Re-resolve with `docker buildx imagetools inspect python:3.13-slim` when bumping
