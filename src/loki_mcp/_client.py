@@ -279,10 +279,10 @@ async def loki_get(
     try:
         with span_cm as span:
             try:
-                # One client per call, on purpose. This is a stdio server that makes a
-                # handful of requests per agent session to a loopback Loki over plain
-                # HTTP, so a pooled client saves nothing measurable, while a module-level
-                # one is bound to the first event loop that used it.
+                # One client per call, on purpose. A tool call makes one or two requests
+                # to a Loki on the same host or container network, so a pooled client
+                # saves nothing measurable, while a module-level one is bound to the first
+                # event loop that used it (stdio and HTTP mode run different loops).
                 async with (
                     httpx.AsyncClient(base_url=cfg.url, timeout=cfg.timeout) as client,
                     client.stream("GET", path, params=params, headers=headers) as resp,

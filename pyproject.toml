@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loki-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "FastMCP server for Loki LogQL queries — read-only access to log streams, with multi-tenant support"
 readme = "README.md"
 license = "MIT"
@@ -94,6 +94,7 @@ omit = ["src/loki_mcp/__main__.py"]
 #
 # Measured 2026-10-08 for v0.2.0: 99.80%
 # (504 statements, 1 missed: the `if __name__ == "__main__"` guard). Raised 80 -> 99.
+# Measured 2026-11-11 for v0.3.0: 99.86% (730 statements, the same 1 missed). Kept at 99.
 # The 80 it replaces sat twenty points below reality, so it would have let a twenty-point
 # regression through green (vikunja#680: searxng-mcp's floor sat twelve points under for
 # ten releases). Live tests (-m live) are not in this number; they skip without Loki.
