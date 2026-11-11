@@ -25,7 +25,7 @@ An HTTP transport with a mandatory bearer token, a container image on GHCR, and 
   CI builds it and checks it refuses to start without a token and returns 401 on `/mcp`.
 - `deploy/docker-compose.loki-mcp.yml` (commented compose example), `ecosystem.config.js`
   (PM2 example), and a README "Running it" section covering stdio, HTTP, PM2 and Docker,
-  with a "which should I pick?" (#493 Finding 3).
+  with a "which should I pick?".
 - **`count_matches`**: matching-line counts per `by` group, and **never line text**. The
   query is built from a bare stream selector, a chain of line filters (`|=`, `!=`, `|~`,
   `!~`) and label names, each checked by a full-match grammar; parser and formatting stages
