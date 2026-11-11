@@ -12,7 +12,7 @@ ARG PYTHON_IMAGE=python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d35
 # uv installs exactly uv.lock (--frozen), the set CI tests and pip-audit checks. A
 # `pip install '.[otel]'` here would re-resolve the ranges in pyproject.toml at build
 # time, so the image could ship versions no gate ever saw.
-FROM ghcr.io/astral-sh/uv:0.11.18@sha256:78bc42400d77b0678ba95765305c826652ed5431f399257271dda681d0318f03 AS uv
+FROM ghcr.io/astral-sh/uv:0.11.33@sha256:77280f2f771df71f90786c314fe1bbc1e023feac652969bbf139c280babf2eb7 AS uv
 
 FROM ${PYTHON_IMAGE} AS build
 COPY --from=uv /uv /usr/local/bin/uv
