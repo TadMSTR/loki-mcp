@@ -587,7 +587,7 @@ def test_iso_helper_matches_datetime() -> None:
     assert server._iso_s(0) == datetime(1970, 1, 1, tzinfo=UTC).isoformat()
 
 
-# ── Audit fixes (argus-observability-2026-10 p1d) ─────────────────────────────
+# ── Audit fixes (0.2.0) ───────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(

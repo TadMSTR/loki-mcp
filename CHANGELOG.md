@@ -269,5 +269,5 @@ Initial release.
 - `get_streams` — list active log streams matching a selector
 - `tail_recent` — convenience wrapper for most recent N log lines
 - `_parse_time()` — relative duration, ISO 8601, and "now" time expression parsing
-- PM2 ecosystem config for forge deployment
+- PM2 ecosystem config
 - 80%+ test coverage via `respx`-mocked Loki HTTP responses

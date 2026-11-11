@@ -215,7 +215,7 @@ async def test_get_patterns_limit_and_budget_notes_combine(env) -> None:
     assert "LOKI_MAX_RESPONSE_CHARS" in out["note"] and "beyond limit=3" in out["note"]
 
 
-# F-02 probe: every place get_patterns turns Loki's sample lists into objects, crossed
+# Sample-bound probe: every place get_patterns turns Loki's sample lists into objects, crossed
 # with the shapes that reach it (one huge pattern, many patterns at the top limit, a
 # list cut by the budget). Each fails on the pre-fix code, which expanded every sample
 # before limit and left `samples` out of the budget cut.
@@ -286,7 +286,7 @@ async def test_get_patterns_non_numeric_sample_ts_does_not_abort_the_call() -> N
 
 @respx.mock
 async def test_get_patterns_bad_sample_items_never_abort_either_loop() -> None:
-    # OV-33 probe over both per-sample loops (total, and the sample rows): every bad
+    # Bad-item probe over both per-sample loops (total, and the sample rows): every bad
     # shape a sample can take is skipped or relayed, and the good ones still count.
     samples = [
         [1794415200, float("inf")],  # sent as Infinity; int() raises OverflowError
