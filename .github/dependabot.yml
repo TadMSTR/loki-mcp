@@ -2,7 +2,7 @@
 # maintaining it is a freeze, not a pin (vikunja#670).
 #
 # The ecosystem is `uv`, not `pip`: `pip` would update pyproject.toml and leave uv.lock
-# frozen. No `docker` ecosystem; this repo has no Dockerfile.
+# frozen. The `docker` ecosystem keeps the Dockerfile's two FROM digests current.
 #
 # Majors are ignored. A semver-major bump is a reading task, and the bounded ranges in
 # pyproject.toml already stop one arriving silently. For a 0.x package (httpx) the minor
@@ -48,6 +48,17 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+
+  # The Dockerfile's base images (python:3.13-slim, ghcr.io/astral-sh/uv), pinned by
+  # digest. Without this entry the digests would only ever move by hand.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: "github-actions"
     directory: "/"

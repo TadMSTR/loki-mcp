@@ -1,0 +1,79 @@
+# loki-mcp: compose service fragment for forge's `observability` stack.
+#
+# THIS IS NOT A RUNNABLE STACK, and not the deployed file. It is the service block to
+# adapt into ~/docker/observability/docker-compose.yml, next to `loki` and `grafana-mcp`
+# (observability-mcps-2026-11 p2, a sysadmin build). Elsewhere, adapt LOKI_URL, the
+# network and the published port; everything else carries over.
+#
+# Verified against Loki 3.7.8 before this file was written: the image was run with
+# read_only, cap_drop ALL and no-new-privileges, healthy, 15 tools over the bearer, and
+# count_matches answered from a scratch Loki on a shared network.
+
+services:
+  loki-mcp:
+    # Pin tag AND digest. The digest is printed in the GitHub release notes for the tag;
+    # :latest also exists and must not be what a deploy pulls.
+    image: ghcr.io/tadmstr/loki-mcp:v0.3.0 # @sha256:<from the v0.3.0 release notes>
+    container_name: loki-mcp
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true # logs go to stderr (LOG_FILE is baked empty); nothing is written
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Measured: 72 MiB idle. Revisit after a week of real calls.
+    mem_limit: 256m
+    cpus: "0.5"
+    ports:
+      # Loopback only. THIS is the exposure control, not the bind address inside the
+      # container (the image binds 0.0.0.0 on purpose). Agents reach it as
+      # localhost:8511; if you publish another port, change LOKI_MCP_ALLOWED_HOSTS to
+      # match or every call gets 421 Misdirected Request.
+      - "127.0.0.1:8511:8511"
+    environment:
+      # Container-to-container by service name. NOT localhost:3100: that is this
+      # container's own loopback. Pointed there it still starts, still reports HEALTHY,
+      # and every tool fails (the vikunja#462 state).
+      - LOKI_URL=http://loki:3100
+      # forge's Loki runs auth_enabled: true, so a header-less call is 401 "no org id".
+      # These are the values ~/scripts/run-loki-mcp.sh sets for v0.2.0 today.
+      - LOKI_ORG_ID=forge|fake
+      - LOKI_TENANTS=forge|fake,argus
+      # Baked into the image too; repeated so the widened bind is visible here.
+      - LOKI_MCP_HOST=0.0.0.0
+      - LOKI_MCP_ALLOW_NONLOOPBACK=1
+      - LOKI_MCP_PORT=8511
+      # The Host values agents send through the publish above. No wildcard: `*` would
+      # turn the DNS-rebinding check off. FastMCP compares the hostname only and always
+      # allows 127.0.0.1, localhost and ::1.
+      - LOKI_MCP_ALLOWED_HOSTS=localhost:8511,127.0.0.1:8511,[::1]:8511
+      # MANDATORY, at least 16 characters; the process refuses to start without it.
+      # Set LOKI_MCP_TOKEN in ~/docker/observability/.env (mode 600), and the same value
+      # in each consuming agent's .env for its manifest's headers:.
+      # Generate: python3 -c "import secrets; print(secrets.token_hex(32))"
+      - LOKI_MCP_API_TOKEN=${LOKI_MCP_TOKEN}
+      - LOG_LEVEL=INFO
+      # OTEL is OFF here, on purpose. The collector (signoz-otel-collector) is on
+      # forge-net and signoz-internal, not forge-monitoring, so from this network the name
+      # does not resolve and the exporter fails quietly. To turn traces on, either attach
+      # this service to forge-net as well (weigh that: forge-net is a wide shared bridge,
+      # and the bearer becomes the only control between it and this tool surface), or
+      # wait for the collector to join forge-monitoring. Then, gRPC 4317, by name:
+      # - OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz-otel-collector:4317
+    depends_on:
+      - loki
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+    # forge-monitoring is where `loki` is. Nothing reaches loki-mcp by container name:
+    # every scoped-mcp instance is a host process and uses the loopback publish.
+    networks:
+      - forge-monitoring
+
+# For reference only: the target stack already declares it. Take the service block.
+networks:
+  forge-monitoring:
+    external: true

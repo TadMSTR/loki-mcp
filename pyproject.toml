@@ -72,7 +72,7 @@ include = ["loki_mcp*"]
 asyncio_mode = "auto"
 markers = [
     # tests/test_live_loki.py: a real multi-tenant Loki. Skipped unless LOKI_LIVE_URL is
-    # set; CI's live-loki job starts grafana/loki:3.7.6 and sets it. A SKIP is not a PASS.
+    # set; CI's live-loki job starts grafana/loki:3.7.8 and sets it. A SKIP is not a PASS.
     "live: requires a reachable multi-tenant Loki; opt in with LOKI_LIVE_URL",
 ]
 
