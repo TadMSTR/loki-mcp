@@ -973,7 +973,8 @@ async def count_matches(
     by: str = "",
     tenant: Tenant = None,
 ) -> dict:
-    """Count the lines that match, per group. **Never returns line text.**
+    """Count the lines that match, per group. **Never returns line text** (``by`` values
+    are label text; see ``by``).
 
     For "is this secret / error / string in the logs, and where" without copying it
     into the conversation: query_logs would return every matching line, and with it
@@ -994,6 +995,9 @@ async def count_matches(
         end:         End of the window. Defaults to "now".
         by:          Comma-separated label names to group by, e.g. "host,container".
                      Empty: one total.
+                     The values come back verbatim: stream labels and structured
+                     metadata are written by whoever pushed the logs, so a ``by`` value
+                     is untrusted text that can carry anything a pusher put there.
         tenant:      Optional X-Scope-OrgID for this call.
 
     Returns:
@@ -1040,6 +1044,9 @@ async def compare_windows(
         window_b:    The boundary, e.g. '-24h'. The recent window runs from window_b
                      to now.
         by:          Comma-separated label names to group by. Empty: one total.
+                     The values come back verbatim: stream labels and structured
+                     metadata are written by whoever pushed the logs, so a ``by`` value
+                     is untrusted text that can carry anything a pusher put there.
         tenant:      Optional X-Scope-OrgID for this call.
 
     Returns:
