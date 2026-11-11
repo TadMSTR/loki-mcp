@@ -148,24 +148,37 @@ def _json_size(item: Any) -> int:
     return len(json.dumps(item, ensure_ascii=False, default=str))
 
 
-def _shrink_values(item: Any, budget: int) -> tuple[Any, int]:
-    """Cut a series' ``values`` list to fit ``budget``. Return (item, points dropped).
+# The per-item lists _shrink_values may cut: a series' points, a pattern's samples.
+_POINT_KEYS = ("values", "samples")
 
-    The first item is always kept, so without this one long series (up to ~11,000
-    points) passed the budget whole and reported ``truncated: false`` (audit F-02:
-    551k chars against a 100k budget).
+
+def _point_key(item: Any) -> str | None:
+    if isinstance(item, dict):
+        for key in _POINT_KEYS:
+            if isinstance(item.get(key), list):
+                return key
+    return None
+
+
+def _shrink_values(item: Any, budget: int) -> tuple[Any, int]:
+    """Cut an item's point list to fit ``budget``. Return (item, points dropped).
+
+    The point list is a series' ``values`` or a pattern's ``samples``. The first item is
+    always kept, so without this one long series (up to ~11,000 points) passed the
+    budget whole and reported ``truncated: false`` (551k chars against a 100k budget).
     """
-    if not (isinstance(item, dict) and isinstance(item.get("values"), list)):
+    key = _point_key(item)
+    if key is None:
         return item, 0
-    values = item["values"]
-    used = _json_size({**item, "values": []})
+    values = item[key]
+    used = _json_size({**item, key: []})
     keep = 0
     for v in values:
         used += _json_size(v) + 2  # json.dumps separates list items with ", "
         if used > budget:
             break
         keep += 1
-    return {**item, "values": values[:keep]}, len(values) - keep
+    return {**item, key: values[:keep]}, len(values) - keep
 
 
 def _envelope(key: str, items: list[Any], tenant: str | None) -> dict[str, Any]:
@@ -178,7 +191,7 @@ def _envelope(key: str, items: list[Any], tenant: str | None) -> dict[str, Any]:
     if kept and _json_size(kept[0]) > budget:
         kept[0], dropped = _shrink_values(kept[0], budget)
         if dropped:
-            total = dropped + len(kept[0]["values"])
+            total = dropped + len(kept[0][_point_key(kept[0])])
             notes.append(f"{dropped} of {total} points of the first item omitted")
         if _json_size(kept[0]) > budget:
             notes.append(f"the first of the {key} is larger than the budget on its own")
@@ -835,6 +848,26 @@ async def get_detected_labels(
     return _envelope("labels", rows, org)
 
 
+def _expand_samples(rows: list[tuple[dict[str, Any], list]]) -> None:
+    """Attach ``samples`` to each pattern row, building no more than the budget can hold.
+
+    Expanding every sample into a dict and an ISO string before anything is cut let a
+    short step over a long window build millions of objects, bounded only by the 32 MiB
+    body cap. A sample serialises to at least ``min_chars``, so more than
+    ``budget // min_chars`` of them can never be returned: build at most that many in
+    total, in pattern order, and say per row how many were left out. _envelope then cuts
+    to the budget as for any other result.
+    """
+    min_chars = _json_size({"ts": _iso_s(0), "count": 0}) + 2
+    remaining = max(1, _max_response_chars() // min_chars)
+    for row, samples in rows:
+        keep = samples[:remaining]
+        row["samples"] = [{"ts": _iso_s(ts), "count": c} for ts, c in keep]
+        remaining -= len(keep)
+        if len(keep) < len(samples):
+            row["samples_omitted"] = len(samples) - len(keep)
+
+
 @mcp.tool(annotations=_READ_ONLY)
 async def get_patterns(
     selector: str,
@@ -869,7 +902,8 @@ async def get_patterns(
     Returns:
         ``{"patterns": [{"pattern", "level", "total", "samples"?}], "count", "tenant",
         "truncated"}``. A pattern longer than LOKI_MAX_LINE_CHARS is cut and carries
-        ``pattern_truncated_chars``.
+        ``pattern_truncated_chars``. Samples beyond what the response budget can hold
+        are not built; a pattern that lost some carries ``samples_omitted``.
     """
     params = {"query": _check_selector(selector), **_range(start, end)}
     if step is not None:
@@ -877,11 +911,14 @@ async def get_patterns(
     org = resolve_tenant(tenant)
     body = await loki_get(_client.PATTERNS_PATH, params, org)
     max_line = _max_line_chars()
-    rows: list[dict[str, Any]] = []
+    rows: list[tuple[dict[str, Any], list]] = []
     for p in _list(body):
         if not isinstance(p, dict) or not isinstance(p.get("pattern"), str):
             continue
-        samples = [s for s in p.get("samples") or [] if isinstance(s, list) and len(s) == 2]
+        raw = p.get("samples")
+        samples = (
+            [s for s in raw if isinstance(s, list) and len(s) == 2] if isinstance(raw, list) else []
+        )
         total = 0
         for _, count in samples:
             with contextlib.suppress(TypeError, ValueError):
@@ -890,11 +927,12 @@ async def get_patterns(
         if len(row["pattern"]) > max_line:
             row["pattern_truncated_chars"] = len(row["pattern"]) - max_line
             row["pattern"] = row["pattern"][:max_line]
-        if step is not None:
-            row["samples"] = [{"ts": _iso_s(ts), "count": c} for ts, c in samples]
-        rows.append(row)
-    rows.sort(key=lambda r: r["total"], reverse=True)
-    out = _envelope("patterns", rows[:limit], org)
+        rows.append((row, samples))
+    rows.sort(key=lambda r: r[0]["total"], reverse=True)
+    top = rows[:limit]
+    if step is not None:
+        _expand_samples(top)
+    out = _envelope("patterns", [row for row, _ in top], org)
     if len(rows) > limit:
         out["note"] = (
             out.get("note", "") + ("; " if "note" in out else "")

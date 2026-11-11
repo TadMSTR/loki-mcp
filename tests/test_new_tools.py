@@ -215,6 +215,74 @@ async def test_get_patterns_limit_and_budget_notes_combine(env) -> None:
     assert "LOKI_MAX_RESPONSE_CHARS" in out["note"] and "beyond limit=3" in out["note"]
 
 
+# F-02 probe: every place get_patterns turns Loki's sample lists into objects, crossed
+# with the shapes that reach it (one huge pattern, many patterns at the top limit, a
+# list cut by the budget). Each fails on the pre-fix code, which expanded every sample
+# before limit and left `samples` out of the budget cut.
+
+
+def _count_iso(monkeypatch) -> list[int]:
+    calls = [0]
+    real = server._iso_s
+
+    def counting(ts):
+        calls[0] += 1
+        return real(ts)
+
+    monkeypatch.setattr(server, "_iso_s", counting)
+    return calls
+
+
+@respx.mock
+async def test_get_patterns_one_huge_sample_list_is_cut_to_the_budget(env, monkeypatch) -> None:
+    env(LOKI_MAX_RESPONSE_CHARS="2000")
+    samples = [[1794415200 + 60 * i, 1] for i in range(50_000)]
+    respx.get(PATTERNS).mock(return_value=Response(200, json=_patterns(("p <_>", samples))))
+    calls = _count_iso(monkeypatch)
+    out = await get_patterns('{job="docker"}', step="1m")
+    row = out["patterns"][0]
+    assert row["total"] == 50_000  # counted from every sample, built from few
+    assert 0 < len(row["samples"]) < 100
+    assert calls[0] <= 2000 // 40 + 2
+    assert row["samples_omitted"] > 0
+    assert out["truncated"] is True
+    assert len(json.dumps(out["patterns"])) <= 2000 + 200
+
+
+@respx.mock
+async def test_get_patterns_samples_across_many_patterns_are_bounded(env, monkeypatch) -> None:
+    env(LOKI_MAX_RESPONSE_CHARS="5000")
+    rows = [(f"p{i} <_>", [[1794415200 + 60 * j, 1] for j in range(500)]) for i in range(1000)]
+    respx.get(PATTERNS).mock(return_value=Response(200, json=_patterns(*rows)))
+    calls = _count_iso(monkeypatch)
+    out = await get_patterns('{job="docker"}', step="1m", limit=1000)
+    assert calls[0] <= 5000 // 40 + 2  # not 1000 x 500
+    assert out["truncated"] is True
+    assert len(json.dumps(out["patterns"])) <= 5000 + 200
+
+
+@respx.mock
+async def test_get_patterns_first_item_samples_are_trimmed_and_noted(env) -> None:
+    # The first row is always kept, so its samples are what _shrink_values must cut.
+    env(LOKI_MAX_RESPONSE_CHARS="600")
+    samples = [[1794415200 + 60 * i, 1] for i in range(40)]
+    respx.get(PATTERNS).mock(return_value=Response(200, json=_patterns(("p <_>", samples))))
+    out = await get_patterns('{job="docker"}', step="1m")
+    assert out["count"] == 1 and out["truncated"] is True
+    assert "points of the first item omitted" in out["note"]
+    assert "larger than the budget" not in out["note"]
+    assert len(json.dumps(out["patterns"])) <= 600
+
+
+@respx.mock
+async def test_get_patterns_without_step_builds_no_samples(monkeypatch) -> None:
+    samples = [[1794415200 + 60 * i, 1] for i in range(10_000)]
+    respx.get(PATTERNS).mock(return_value=Response(200, json=_patterns(("p <_>", samples))))
+    calls = _count_iso(monkeypatch)
+    out = await get_patterns('{job="docker"}')
+    assert calls[0] == 0 and "samples" not in out["patterns"][0]
+
+
 @respx.mock
 async def test_get_patterns_skips_malformed_rows_and_samples() -> None:
     body = {
