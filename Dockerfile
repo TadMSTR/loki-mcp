@@ -28,8 +28,7 @@ WORKDIR /src
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project --no-dev --extra otel
 # [otel] is in that set deliberately: setting OTEL_EXPORTER_OTLP_ENDPOINT without it does
-# not fail loudly, the exporter import fails once and nothing is ever exported
-# (vikunja#336).
+# not fail loudly, the exporter import fails once and nothing is ever exported.
 
 # The build backend, hash-pinned. uv.lock does not lock build dependencies, so letting
 # uv build the project would fetch whatever setuptools satisfies `>=68` that day. These are
@@ -53,7 +52,7 @@ FROM ${PYTHON_IMAGE} AS runtime
 # namespace, and is not an exposure decision: inside a namespace the bind address is not
 # the security control, the compose `ports:` publish is (deploy/ publishes loopback only).
 # Do not "harden" it back to 127.0.0.1: that is a container that reports healthy while
-# every agent call fails (vikunja#462).
+# every agent call fails.
 #
 # LOKI_MCP_ALLOW_NONLOOPBACK=1 is not redundant with it. main() refuses a non-loopback
 # bind without this opt-in, so widening the bind is a choice someone made, not a side
@@ -84,7 +83,7 @@ ENV LOKI_MCP_HOST=0.0.0.0 \
 COPY --from=build /opt/venv /opt/venv
 
 # Non-root, and not uid 1000: on a typical single-user host that is the operator's login
-# account, so a container escape would land with its files and groups (KB DC-15). 65534
+# account, so a container escape would land with its files and groups. 65534
 # (nobody/nogroup) owns nothing, exists in the base image, and is what grafana-mcp runs as.
 USER 65534:65534
 

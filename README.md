@@ -57,7 +57,7 @@ into the transcript and any trace store behind it. `count_matches` answers "is i
 where" with numbers only:
 
 ```
-count_matches(selector='{host="argus"}',
+count_matches(selector='{host="web01"}',
               line_filter='|~ "(?i)(passw|token|secret|bearer)"',
               start="-24h", by="container")
 → {"groups": [{"labels": {"container": "app"}, "count": 3}], "total": 3, "query": "...", ...}
@@ -186,7 +186,7 @@ The same variables work in every mode.
 
 ```bash
 git clone https://github.com/TadMSTR/loki-mcp && cd loki-mcp
-uv sync --frozen            # or: python -m venv .venv && .venv/bin/pip install '.[otel]'
+uv sync --frozen --no-dev --extra otel   # installs exactly the locked versions CI audits
 LOKI_URL=http://localhost:3100 LOKI_ORG_ID='main|fake' .venv/bin/loki-mcp
 ```
 
@@ -201,8 +201,9 @@ LOKI_MCP_PORT=8511 LOKI_URL=http://localhost:3100 .venv/bin/loki-mcp
 
 Clients connect to `http://localhost:8511/mcp` with `Authorization: Bearer <token>`.
 `GET /health` answers without a token and never calls Loki; the `get_health` tool is what
-checks Loki. If clients reach it under another hostname or port, list the `Host` values in
-`LOKI_MCP_ALLOWED_HOSTS`.
+checks Loki. If clients reach it under another hostname, list the `Host` values in
+`LOKI_MCP_ALLOWED_HOSTS`. The guard compares hostnames only, so the port is not checked (see
+[SECURITY.md](SECURITY.md)).
 
 ### PM2
 
@@ -222,9 +223,14 @@ and runs with a read-only root filesystem.
 ```bash
 docker run -d --name loki-mcp --read-only --cap-drop ALL \
   --security-opt no-new-privileges -p 127.0.0.1:8511:8511 \
-  -e LOKI_URL=http://loki:3100 -e LOKI_MCP_API_TOKEN="$LOKI_MCP_API_TOKEN" \
-  --network <the network Loki is on> ghcr.io/tadmstr/loki-mcp:v0.3.0
+  -e LOKI_URL=http://loki:3100 -e LOKI_MCP_API_TOKEN \
+  --network <the network Loki is on> \
+  ghcr.io/tadmstr/loki-mcp:v0.3.0@sha256:<digest-from-the-release-notes>
 ```
+
+`-e LOKI_MCP_API_TOKEN` with no value passes the variable from your environment, so the token
+never appears on the `docker` command line, where other local users could read it from the
+process list. `--env-file` with a mode-600 file works too.
 
 [`deploy/docker-compose.loki-mcp.yml`](deploy/docker-compose.loki-mcp.yml) is a commented
 compose service. Two traps it explains: `LOKI_URL` must name Loki's container, not

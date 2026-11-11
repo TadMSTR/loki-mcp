@@ -1,8 +1,8 @@
 // PM2 example: loki-mcp as a long-running HTTP server on the host.
 //
-// An example, not forge's deployment (forge runs the container; see
-// deploy/docker-compose.loki-mcp.yml). Adjust the paths. Install first:
-//   python3 -m venv .venv && .venv/bin/pip install '.[otel]'
+// An example. For a container deployment see deploy/docker-compose.loki-mcp.yml.
+// Adjust the paths. Install from the lock first, so the venv holds the versions CI audits:
+//   uv sync --frozen --no-dev --extra otel
 //
 // The token does not belong in this file. Put LOKI_MCP_API_TOKEN in the environment PM2
 // is started from (or an env file you source first), and pm2 start captures it. The

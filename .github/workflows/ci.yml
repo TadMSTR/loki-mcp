@@ -57,7 +57,7 @@ jobs:
   # MULTI-TENANT BEHAVIOUR AGAINST A REAL LOKI.
   #
   # The test job's live tests SKIP (no Loki), and a skip is not a pass. This job is what
-  # runs them: grafana/loki 3.7.8 (forge's version) pinned by digest, with auth_enabled,
+  # runs them: grafana/loki 3.7.8 pinned by digest, with auth_enabled,
   # multi_tenant_queries_enabled and the pattern ingester. It is what proves, on every change, that a header-less
   # call names LOKI_ORG_ID, that `main|fake` reads both tenants with __tenant_id__, that
   # every endpoint loki-mcp calls still accepts a multi-tenant header, and that Loki would
@@ -119,7 +119,7 @@ jobs:
   #
   # `pip-audit --strict .` on a project without a lock re-resolves the declared ranges
   # and reports on what a fresh install would get today, not on what this project pins
-  # (vikunja#633: an audit read undici 7.29.0 green while the deployed tree ran 7.28.0
+  # (an audit once read undici 7.29.0 green while the deployed tree ran 7.28.0
   # with four HIGH advisories).
   audit:
     name: Dependency audit

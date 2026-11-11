@@ -117,7 +117,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      # The released bytes are checked before anything is pushed (KB DC-09): build the
+      # The released bytes are checked before anything is pushed: build the
       # amd64 image locally, run the same fail-closed checks as ci.yml's image job, and only
       # then push. The amd64 layers of the push come from this build's cache. arm64 is built
       # from the same Dockerfile and lock but is NOT run here (no arm64 runner); the release
@@ -150,7 +150,7 @@ jobs:
           test "$(docker inspect -f '{{.Config.User}}' lm)" = "65534:65534"
           docker rm -f lm
 
-      # `:latest` moves only for a stable vX.Y.Z tag (KB DC-11). The build job already
+      # `:latest` moves only for a stable vX.Y.Z tag. The build job already
       # requires the tag to equal "v" + the package version, so a PEP 440 prerelease such as
       # v0.4.0rc1 gets its own tag and leaves :latest alone. Lowercased owner, hardcoded:
       # GHCR refuses an uppercase path and the owner is `TadMSTR`.

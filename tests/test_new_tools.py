@@ -51,7 +51,7 @@ BUILDINFO = {"version": "3.7.8", "revision": "09e6ce2f", "branch": "release-3.7.
 
 @respx.mock
 async def test_get_health_ready(env) -> None:
-    env(LOKI_ORG_ID="forge|fake")
+    env(LOKI_ORG_ID="main|fake")
     respx.get(f"{LOKI}/ready").mock(return_value=Response(200, text="ready\n"))
     respx.get(f"{LOKI}/loki/api/v1/status/buildinfo").mock(
         return_value=Response(200, json=BUILDINFO)
@@ -61,7 +61,7 @@ async def test_get_health_ready(env) -> None:
         "reason": None,
         "version": "3.7.8",
         "revision": "09e6ce2f",
-        "tenant": "forge|fake",
+        "tenant": "main|fake",
     }
 
 
@@ -116,7 +116,7 @@ async def test_get_health_unknown_tenant_refused_before_any_request(env) -> None
 
 @respx.mock
 async def test_get_detected_labels_highest_cardinality_first(env) -> None:
-    env(LOKI_ORG_ID="forge")
+    env(LOKI_ORG_ID="main")
     route = respx.get(f"{LOKI}/loki/api/v1/detected_labels").mock(
         return_value=Response(
             200,
@@ -130,10 +130,10 @@ async def test_get_detected_labels_highest_cardinality_first(env) -> None:
             },
         )
     )
-    out = await get_detected_labels('{host="argus"}')
+    out = await get_detected_labels('{host="web01"}')
     assert [r["label"] for r in out["labels"]] == ["container", "job", "odd"]
-    assert out["count"] == 3 and out["tenant"] == "forge" and out["truncated"] is False
-    assert _query_of(route)["query"] == '{host="argus"}'
+    assert out["count"] == 3 and out["tenant"] == "main" and out["truncated"] is False
+    assert _query_of(route)["query"] == '{host="web01"}'
 
 
 @respx.mock
@@ -252,21 +252,21 @@ async def test_other_404_keeps_lokis_message() -> None:
 
 @respx.mock
 async def test_count_matches_builds_the_query_and_returns_counts_only(env) -> None:
-    env(LOKI_ORG_ID="forge")
+    env(LOKI_ORG_ID="main")
     route = respx.get(Q).mock(
         return_value=Response(
             200,
-            json=_vector(({"host": "argus"}, "12"), ({"host": "forge"}, "30")),
+            json=_vector(({"host": "web01"}, "12"), ({"host": "db01"}, "30")),
         )
     )
     out = await count_matches(
         '{job=~".+"}', line_filter='|~ "(?i)token"', start="-1h", end="now", by="host"
     )
     assert out["groups"] == [
-        {"labels": {"host": "forge"}, "count": 30},
-        {"labels": {"host": "argus"}, "count": 12},
+        {"labels": {"host": "db01"}, "count": 30},
+        {"labels": {"host": "web01"}, "count": 12},
     ]
-    assert out["total"] == 42 and out["tenant"] == "forge"
+    assert out["total"] == 42 and out["tenant"] == "main"
     q = _query_of(route)
     assert q["query"] == 'sum by (host) (count_over_time({job=~".+"} |~ "(?i)token" [3600s]))'
     assert q["query"] == out["query"]
@@ -285,15 +285,15 @@ async def test_count_matches_keeps_only_by_labels() -> None:
 
 @respx.mock
 async def test_count_matches_multi_tenant_keeps_lokis_tenant_label(env) -> None:
-    env(LOKI_ORG_ID="forge|argus")
+    env(LOKI_ORG_ID="main|edge")
     respx.get(Q).mock(
         return_value=Response(
             200,
-            json=_vector(({"host": "a", "__tenant_id__": "argus"}, "3")),
+            json=_vector(({"host": "a", "__tenant_id__": "edge"}, "3")),
         )
     )
     out = await count_matches('{job="a"}', by="host")
-    assert out["groups"][0]["labels"] == {"host": "a", "__tenant_id__": "argus"}
+    assert out["groups"][0]["labels"] == {"host": "a", "__tenant_id__": "edge"}
 
 
 @respx.mock

@@ -39,8 +39,8 @@ _NAME = r"[A-Za-z_][A-Za-z0-9_]*"
 
 # Whitespace runs are possessive (`\s*+`, Python 3.11+): adjacent optional runs over the
 # same characters made `{a="b"` + 30,000 spaces + `!` take 0.4 s to refuse, quadratic in
-# the argument, on the event loop (KB IV-78). Possessive runs give nothing back, so a
-# refusal is one linear scan. MAX_PART_CHARS bounds the input as well (KB IV-47).
+# the argument, on the event loop. Possessive runs give nothing back, so a
+# refusal is one linear scan. MAX_PART_CHARS bounds the input as well.
 _MATCHER = rf"\s*+{_NAME}\s*+(?:=~|!~|!=|=)\s*+{_STRING}\s*+"
 SELECTOR_RE = re.compile(rf"\s*+\{{{_MATCHER}(?:,{_MATCHER})*+,?\s*+\}}\s*+")
 
@@ -55,8 +55,9 @@ MAX_PART_CHARS = 4096
 
 _NAME_RE = re.compile(_NAME)
 
-# Loki's max_query_lookback on forge (local-config.yaml), and the longest range a single
-# count can cover there. A longer range would be cut by Loki without saying so.
+# The longest range a single count may cover: 720 h, the max_query_lookback of the Loki this
+# was written against. A range past the server's own lookback would be cut by Loki without
+# saying so.
 MAX_RANGE_SECONDS = 720 * 3600
 
 
@@ -71,7 +72,7 @@ def check_selector(selector: str) -> str:
     if not SELECTOR_RE.fullmatch(selector):
         raise ToolError(
             f"selector must be a stream selector and nothing else, such as "
-            f'{{host="argus", job=~"docker.*"}}; got {selector!r}. Put line filters in '
+            f'{{host="web01", job=~"docker.*"}}; got {selector!r}. Put line filters in '
             "line_filter. Parser and formatting stages are not accepted by this tool."
         )
     return selector.strip()

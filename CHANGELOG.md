@@ -47,7 +47,7 @@ An HTTP transport with a mandatory bearer token, a container image on GHCR, and 
 - Dependabot `docker` ecosystem for the Dockerfile's base-image digests.
 
 ### Changed
-- CI's live Loki is 3.7.8 (forge's version, by digest) with the pattern ingester on; the
+- CI's live Loki is 3.7.8 (pinned by digest) with the pattern ingester on; the
   live-test floor rises from 15 to 32.
 - Dependencies: fastmcp 4.1.8, pydantic 2.14.3, opentelemetry 1.45.2, ruff 0.17.3,
   pytest 9.2.0, setuptools 84.2.1 (build), and the four Actions bumps Dependabot had open.

@@ -84,8 +84,8 @@ def test_line_filter_refused(line_filter: str) -> None:
 
 ACCEPTED_SELECTORS = [
     '{job="docker"}',
-    ' { host = "argus" , job =~ "docker.*" } ',
-    '{host!="forge",level!~"debug|info"}',
+    ' { host = "web01" , job =~ "docker.*" } ',
+    '{host!="db01",level!~"debug|info"}',
     '{job="docker",}',
     "{job=`raw`}",
     '{job="has } brace and | pipe"}',
@@ -101,7 +101,7 @@ REFUSED_SELECTORS = [
     '{job="docker"}}',
     "{job=docker}",
     '{"job"="docker"}',
-    '{job="docker" host="argus"}',
+    '{job="docker" host="web01"}',
     '{job="docker"',
     '{job="unterminated}',
     'sum(count_over_time({job="docker"}[1h]))',

@@ -54,7 +54,8 @@ Include as much detail as possible: the affected component, steps to reproduce, 
   locked version). A `Host` outside `LOKI_MCP_ALLOWED_HOSTS` gets 421 and a foreign `Origin`
   403, before the token is checked. Two limits, from fastmcp's source: it compares the
   **hostname only** (the port is dropped, so `localhost:8511` allows `localhost` on any port),
-  and it **always allows** `127.0.0.1`, `localhost` and `::1` in addition to the list. It is a
+  and it **always allows** `127.0.0.1`, `localhost` and `::1` in addition to the list, plus the
+host of the address the server is bound to (ASGI `scope["server"]`). It is a
   DNS-rebinding defence, not an access control; the token is the access control.
 - **No credential in the image or the health check.** The token comes from the environment;
   the HEALTHCHECK calls `/health` without one.

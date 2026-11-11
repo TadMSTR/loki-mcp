@@ -811,7 +811,7 @@ async def get_detected_labels(
     values each has, before choosing a ``by`` or a matcher.
 
     Args:
-        selector: Stream selector, e.g. ``{host="argus"}``. Loki needs at least one
+        selector: Stream selector, e.g. ``{host="web01"}``. Loki needs at least one
                   matcher that does not match the empty string.
         start:    Start time. Defaults to the last hour.
         end:      End time. Defaults to "now".
@@ -946,7 +946,7 @@ async def count_matches(
     evaluated once at ``end``.
 
     Args:
-        selector:    A stream selector and nothing else, e.g. ``{host="argus"}``.
+        selector:    A stream selector and nothing else, e.g. ``{host="web01"}``.
         line_filter: Only line filters: ``|=``, ``!=``, ``|~``, ``!~``, each followed by
                      a "quoted" or `backtick` string, e.g.
                      ``|~ "(?i)(passw|token|secret)" != "redacted"``. Parser and
@@ -995,7 +995,7 @@ async def compare_windows(
     compare_windows, and the same validated builder as count_matches.
 
     Args:
-        selector:    A stream selector and nothing else, e.g. ``{host="argus"}``.
+        selector:    A stream selector and nothing else, e.g. ``{host="web01"}``.
         line_filter: Only line filters, exactly as count_matches accepts them.
         window_a:    The EARLIER/baseline window's start, e.g. '-48h'. It runs from
                      window_a to window_b.
@@ -1061,7 +1061,7 @@ def _validate_startup() -> None:
 #
 # stdio stays the default; setting LOKI_MCP_PORT switches to streamable-http on /mcp.
 # HTTP adds a network surface stdio never had, in front of tools that return log lines
-# (and in forge's case, security's secret scans). Fail closed, as nats-mcp does: a
+# (including any secret-pattern scans a caller runs). Fail closed, as nats-mcp does: a
 # bearer token is mandatory, a non-loopback bind needs an explicit opt-in, and every
 # bad value stops the process at launch with the variable named. searxng-mcp's
 # 2026-08-19 containerise is the counter-example on record: optional, off-by-default
