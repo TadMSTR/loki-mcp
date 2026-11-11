@@ -4,9 +4,12 @@
 // Adjust the paths. Install from the lock first, so the venv holds the versions CI audits:
 //   uv sync --frozen --no-dev --extra otel
 //
-// The token does not belong in this file. Put LOKI_MCP_API_TOKEN in the environment PM2
-// is started from (or an env file you source first), and pm2 start captures it. The
-// process refuses to start in HTTP mode without one of at least 16 characters.
+// The token does not belong in this file. pm2 start captures LOKI_MCP_API_TOKEN from
+// the environment it runs in: source a mode-600 env file in a subshell for that one
+// command (README, PM2). If the same command starts the PM2 daemon, the daemon keeps the
+// token and every app it starts later inherits it, so start the daemon first from a shell
+// without it. The process refuses to start in HTTP mode without a token of at least 16
+// characters.
 module.exports = {
   apps: [
     {

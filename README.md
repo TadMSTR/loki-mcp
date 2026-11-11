@@ -207,12 +207,17 @@ checks Loki. If clients reach it under another hostname, list the `Host` values 
 
 ### PM2
 
-[`ecosystem.config.js`](ecosystem.config.js) runs the HTTP mode above under PM2. Export
-`LOKI_MCP_API_TOKEN` in the shell first; it does not go in the file.
+[`ecosystem.config.js`](ecosystem.config.js) runs the HTTP mode above under PM2. The token
+does not go in the file. Keep it in a mode-600 env file and start PM2 from a subshell that
+reads it, so it never sits in your interactive shell:
 
 ```bash
-pm2 start ecosystem.config.js
+(set -a; . ~/.config/loki-mcp/env; set +a; pm2 start ecosystem.config.js)
 ```
+
+If that `pm2 start` also launches the PM2 daemon, the daemon keeps the launching
+environment, token included, and every app it starts later inherits it. Start the daemon
+first (`pm2 ping`) from a shell without the token, or give loki-mcp its own `PM2_HOME`.
 
 ### Docker
 
