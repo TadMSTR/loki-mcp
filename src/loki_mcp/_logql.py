@@ -37,14 +37,21 @@ from fastmcp.exceptions import ToolError
 _STRING = r'(?:"(?:[^"\\\n]|\\.)*"|`[^`]*`)'
 _NAME = r"[A-Za-z_][A-Za-z0-9_]*"
 
-_MATCHER = rf"\s*{_NAME}\s*(?:=~|!~|!=|=)\s*{_STRING}\s*"
-SELECTOR_RE = re.compile(rf"\s*\{{{_MATCHER}(?:,{_MATCHER})*,?\s*\}}\s*")
+# Whitespace runs are possessive (`\s*+`, Python 3.11+): adjacent optional runs over the
+# same characters made `{a="b"` + 30,000 spaces + `!` take 0.4 s to refuse, quadratic in
+# the argument, on the event loop (KB IV-78). Possessive runs give nothing back, so a
+# refusal is one linear scan. MAX_PART_CHARS bounds the input as well (KB IV-47).
+_MATCHER = rf"\s*+{_NAME}\s*+(?:=~|!~|!=|=)\s*+{_STRING}\s*+"
+SELECTOR_RE = re.compile(rf"\s*+\{{{_MATCHER}(?:,{_MATCHER})*+,?\s*+\}}\s*+")
 
 # Loki also has `|>`/`!>` (pattern filters), `or` between filter values and `ip(...)`.
 # None of them extract text, but none is needed to find a leak either, and each widens
 # the grammar this guarantee rests on. Add one only with a test that it cannot leak.
-_FILTER = rf"\s*(?:\|=|!=|\|~|!~)\s*{_STRING}"
-LINE_FILTER_RE = re.compile(rf"(?:{_FILTER})*\s*")
+_FILTER = rf"\s*+(?:\|=|!=|\|~|!~)\s*+{_STRING}"
+LINE_FILTER_RE = re.compile(rf"(?:{_FILTER})*+\s*+")
+
+# Longest selector, line_filter or by accepted. A real one is a few hundred characters.
+MAX_PART_CHARS = 4096
 
 _NAME_RE = re.compile(_NAME)
 
@@ -53,8 +60,14 @@ _NAME_RE = re.compile(_NAME)
 MAX_RANGE_SECONDS = 720 * 3600
 
 
+def _check_length(name: str, value: str) -> None:
+    if len(value) > MAX_PART_CHARS:
+        raise ToolError(f"{name} is {len(value)} characters; the limit is {MAX_PART_CHARS}.")
+
+
 def check_selector(selector: str) -> str:
     """Return ``selector`` stripped if it is a bare stream selector, else ToolError."""
+    _check_length("selector", selector)
     if not SELECTOR_RE.fullmatch(selector):
         raise ToolError(
             f"selector must be a stream selector and nothing else, such as "
@@ -66,6 +79,7 @@ def check_selector(selector: str) -> str:
 
 def check_line_filter(line_filter: str) -> str:
     """Return ``line_filter`` stripped if it is only a chain of line filters, else ToolError."""
+    _check_length("line_filter", line_filter)
     if not LINE_FILTER_RE.fullmatch(line_filter):
         raise ToolError(
             "line_filter accepts only line filters: |= != |~ !~, each followed by one "
@@ -79,6 +93,7 @@ def check_line_filter(line_filter: str) -> str:
 
 def parse_by(by: str) -> list[str]:
     """Return the label names in a comma-separated ``by``, in order, de-duplicated."""
+    _check_length("by", by)
     names = [n.strip() for n in by.split(",")] if by.strip() else []
     bad = [n for n in names if not _NAME_RE.fullmatch(n)]
     if bad:

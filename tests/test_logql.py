@@ -8,6 +8,8 @@ looking for a leak needs to be able to say.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from fastmcp.exceptions import ToolError
 
@@ -171,3 +173,46 @@ def test_count_query_shapes() -> None:
         _logql.count_query('{job="a"}', '|= "x  y"', ["host", "job"], 3600)
         == 'sum by (host, job) (count_over_time({job="a"} |= "x  y" [3600s]))'
     )
+
+
+# ── cost of a refusal ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("check", "value"),
+    [
+        # The shape that was quadratic before the runs were made possessive: a valid
+        # element, a long whitespace run, then a character that can't follow.
+        (_logql.check_selector, '{a="b"' + " " * 4000 + "!"),
+        (_logql.check_selector, "{" + ('a="b"' + " " * 40 + ",") * 80 + "!"),
+        (_logql.check_line_filter, '|= "a"' + " " * 4000 + "!"),
+        (_logql.check_line_filter, ('|= "a"' + " " * 40) * 80 + "!"),
+    ],
+)
+def test_refusal_is_linear_at_the_length_limit(check, value: str) -> None:
+    assert len(value) <= _logql.MAX_PART_CHARS
+    started = time.perf_counter()
+    with pytest.raises(ToolError):
+        check(value)
+    # Measured: 0.39 s for 30,000 characters before the fix, so ~7 ms at this size even
+    # when quadratic. Repeat to make the bound meaningful: 200 refusals in under a second.
+    for _ in range(199):
+        with pytest.raises(ToolError):
+            check(value)
+    assert time.perf_counter() - started < 1.0
+
+
+def test_possessive_runs_have_no_quadratic_shape() -> None:
+    # Bypass the length cap and time the regex itself at 10x the old measurement's size.
+    value = '{a="b"' + " " * 300_000 + "!"
+    started = time.perf_counter()
+    assert not _logql.SELECTOR_RE.fullmatch(value)
+    assert time.perf_counter() - started < 0.5
+
+
+@pytest.mark.parametrize(
+    "check", [_logql.check_selector, _logql.check_line_filter, _logql.parse_by]
+)
+def test_over_length_refused(check) -> None:
+    with pytest.raises(ToolError, match="the limit is 4096"):
+        check("x" * (_logql.MAX_PART_CHARS + 1))
