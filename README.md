@@ -138,9 +138,9 @@ per-tenant marker.
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Enables one span per Loki request (needs the `otel` extra) |
 | `LOKI_MCP_PORT` | unset (stdio) | Set: serve streamable-http on `/mcp` at this port |
 | `LOKI_MCP_HOST` | `127.0.0.1` | HTTP bind address. The image sets `0.0.0.0` |
-| `LOKI_MCP_ALLOW_NONLOOPBACK` | unset | Required (`1`) to bind a non-loopback address. The image sets it |
-| `LOKI_MCP_API_TOKEN` | none | Bearer token. **Required in HTTP mode**, at least 16 characters |
-| `LOKI_MCP_ALLOWED_HOSTS` | `localhost:8511,127.0.0.1:8511,[::1]:8511` | Host values the DNS-rebinding guard accepts. No wildcards |
+| `LOKI_MCP_ALLOW_NONLOOPBACK` | unset | Required (`1`, `true` or `yes`) to bind a non-loopback address. The image sets it |
+| `LOKI_MCP_API_TOKEN` | none | Bearer token. **Required in HTTP mode**, at least 16 characters, no leading or trailing whitespace |
+| `LOKI_MCP_ALLOWED_HOSTS` | `localhost:8511,127.0.0.1:8511,[::1]:8511` | `Host` values the DNS-rebinding guard accepts. No wildcards. Only the hostname is compared (the port is ignored), and the loopback names are always allowed |
 
 An invalid value stops the server at startup with the variable named, rather than on
 an agent's first call.
@@ -172,7 +172,8 @@ an agent's first call.
   non-loopback bind needs `LOKI_MCP_ALLOW_NONLOOPBACK=1`; `/health` (exact path) is the only
   unauthenticated route and returns `{"status":"ok"}` and nothing else. FastMCP's Host/Origin
   guard is on: a foreign `Host` is refused with 421 before the token is checked, a foreign
-  `Origin` with 403.
+  `Origin` with 403. The guard compares hostnames only and is a DNS-rebinding defence, not
+  an access control: the token is the access control.
 - **No outbound calls except Loki** (and the OTLP endpoint, if set). FastMCP's startup
   banner, which checks PyPI for updates, is off.
 
@@ -250,6 +251,17 @@ in-container bind address. For stdio from the image, `docker run -i -e LOKI_MCP_
 - **An API client** of a service that already runs in a container, which loki-mcp is: Docker,
   next to Loki, published on loopback. It is portable, resource-limited, and reachable from
   other containers.
+
+## Observability
+
+- **Logs** are JSON lines (structlog) on stderr and, unless `LOG_FILE` is empty, in a
+  rotating file. Each Loki request logs one `loki_request` event with `path`, `tenant`,
+  `status` and `duration_ms`. The LogQL and other parameters are logged only at `DEBUG`
+  (`loki_request_params`).
+- **Traces** are opt-in. With `OTEL_EXPORTER_OTLP_ENDPOINT` set and the `otel` extra
+  installed, each Loki request is a `loki.get` span (attributes `loki.path`, `loki.tenant`,
+  `http.status_code`), exported over OTLP gRPC with `service.name=loki-mcp`. If the extra
+  is missing, the server logs one `otel_init_failed` warning and runs without tracing.
 
 ## Development
 
